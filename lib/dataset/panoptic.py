@@ -18,8 +18,8 @@ import logging
 import os
 import copy
 
-from dataset.JointsDataset import JointsDataset
-from utils.transforms import fliplr_joints, projectPoints
+from .JointsDataset import JointsDataset
+from ..utils.transforms import fliplr_joints, projectPoints
 
 logger = logging.getLogger(__name__)
 
