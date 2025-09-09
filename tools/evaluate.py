@@ -21,13 +21,13 @@ from prettytable import PrettyTable
 import copy
 import logging
 
-import _init_paths
-from core.config import config
-from core.config import update_config
-from utils.utils import create_logger, load_backbone_panoptic
-import dataset
-import models
-from utils.vis import save_batch_heatmaps_multi, save_debug_3d_images_all
+# import _init_paths
+from SelfPose3d.core.config import config
+from SelfPose3d.core.config import update_config
+from SelfPose3d.utils.utils import create_logger, load_backbone_panoptic
+from SelfPose3d import dataset
+from SelfPose3d import models
+from SelfPose3d.utils.vis import save_batch_heatmaps_multi, save_debug_3d_images_all
 
 
 def parse_args():
