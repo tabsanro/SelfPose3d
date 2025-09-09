@@ -13,9 +13,9 @@ from torch.utils.data import Dataset
 import os
 
 
-from ..utils.transforms import get_affine_transform
-from ..utils.transforms import affine_transform, get_scale
-from .randaugment import RandAugment, Cutout
+from utils.transforms import get_affine_transform
+from utils.transforms import affine_transform, get_scale
+from dataset.randaugment import RandAugment, Cutout
 from PIL import Image
 
 logger = logging.getLogger(__name__)

@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..utils import cameras
-from ..utils.transforms import get_affine_transform as get_transform
-from ..utils.transforms import affine_transform_pts_cuda as do_transform
+import utils.cameras as cameras
+from utils.transforms import get_affine_transform as get_transform
+from utils.transforms import affine_transform_pts_cuda as do_transform
 
 
 class ProjectLayer(nn.Module):

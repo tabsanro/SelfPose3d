@@ -18,8 +18,8 @@ import logging
 import os
 import copy
 
-from .JointsDatasetSSV import JointsDatasetSSV
-from ..utils.transforms import projectPoints
+from dataset.JointsDatasetSSV import JointsDatasetSSV
+from utils.transforms import projectPoints
 
 logger = logging.getLogger(__name__)
 

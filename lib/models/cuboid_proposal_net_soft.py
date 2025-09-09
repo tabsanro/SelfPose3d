@@ -5,12 +5,12 @@
 
 import torch
 import torch.nn as nn
-from .v2v_net import V2VNet
-from .project_layer import ProjectLayer
-from ..core.proposal import nms
+from models.v2v_net import V2VNet
+from models.project_layer import ProjectLayer
+from core.proposal import nms
 import numpy as np
 from copy import deepcopy
-from ..utils import cameras
+import utils.cameras as cameras
 from vedo import Volume, show
 import cv2
 

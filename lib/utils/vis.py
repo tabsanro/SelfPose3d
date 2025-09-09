@@ -17,9 +17,9 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from vedo import Points, Lines, Picture, show, screenshot
 import torch
-from . import cameras
-from .transforms import get_affine_transform as get_transform
-from .transforms import affine_transform_pts_cuda as do_transform
+import utils.cameras as cameras
+from utils.transforms import get_affine_transform as get_transform
+from utils.transforms import affine_transform_pts_cuda as do_transform
 from matplotlib import colors
 
 

@@ -7,11 +7,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from . import pose_resnet
-from . import v2v_net
-from . import project_layer
-from . import cuboid_proposal_net
-from . import cuboid_proposal_net_soft
-from . import pose_regression_net
-from . import multi_person_posenet
-from . import multi_person_posenet_ssv
+import models.pose_resnet
+import models.v2v_net
+import models.project_layer
+import models.cuboid_proposal_net
+import models.cuboid_proposal_net_soft
+import models.pose_regression_net
+import models.multi_person_posenet
+import models.multi_person_posenet_ssv
