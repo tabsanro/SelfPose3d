@@ -22,15 +22,15 @@ import pprint
 import logging
 import json
 
-import _init_paths
-from core.config import config
-from core.config import update_config
-from core.function import train_3d, train_3d_ssv, validate_3d
-from utils.utils import create_logger
-from utils.utils import save_checkpoint, load_checkpoint, load_model_state
-from utils.utils import load_backbone_panoptic
-import dataset
-import models
+# import _init_paths
+from SelfPose3d.core.config import config
+from SelfPose3d.core.config import update_config
+from SelfPose3d.core.function import train_3d, train_3d_ssv, validate_3d
+from SelfPose3d.utils.utils import create_logger
+from SelfPose3d.utils.utils import save_checkpoint, load_checkpoint, load_model_state
+from SelfPose3d.utils.utils import load_backbone_panoptic
+from SelfPose3d import dataset
+from SelfPose3d import models
 import random
 import numpy as np
 #parser.add_argument("--cfg", help="experiment configure file name", required=False, default="./configs/panoptic_ssv/resnet50/run_18_1_train_pseudo_gt_3d.yaml", type=str)
