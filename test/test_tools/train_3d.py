@@ -169,4 +169,12 @@ def main():
 
 if __name__ == "__main__":
     torch.multiprocessing.set_sharing_strategy('file_system')
+    import sys
+    default_argv = [
+        # '--cfg', 'test/test_configs/2D_heatmap.yaml',
+        # '--cfg', 'test/test_configs/3D_rootnet.yaml',
+        '--cfg', 'test/test_configs/3D_posenet.yaml',
+    ]
+    if len(sys.argv) == 1:
+        sys.argv.extend(default_argv)
     main()

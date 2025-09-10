@@ -45,11 +45,11 @@ NETWORK:
   - 1920
   - 1080  
   IMAGE_SIZE:
-  - 960
-  - 512
+  - 256
+  - 256
   HEATMAP_SIZE:
-  - 240
-  - 128
+  - 64
+  - 64
   SIGMA: 3
   NUM_JOINTS: 15
   USE_GT: False

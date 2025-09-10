@@ -53,11 +53,11 @@ NETWORK:
   - 1920
   - 1080  
   IMAGE_SIZE:
-  - 960
-  - 512
+  - 256
+  - 256
   HEATMAP_SIZE:
-  - 240
-  - 128
+  - 64
+  - 64
   SIGMA: 3
   NUM_JOINTS: 15
   USE_GT: False
@@ -78,7 +78,7 @@ POSE_RESNET:
 LOSS:
   USE_TARGET_WEIGHT: true
 TRAIN:
-  BATCH_SIZE: 1
+  BATCH_SIZE: 2
   SHUFFLE: true
   BEGIN_EPOCH: 0
   END_EPOCH: 1
