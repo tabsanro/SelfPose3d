@@ -10,17 +10,17 @@ from cv2 import imshow
 
 import torch
 import torch.nn as nn
-import utils.cameras as cameras
+from ..utils import cameras
 from copy import deepcopy
-from models import pose_resnet
-from models.cuboid_proposal_net_soft import CuboidProposalNetSoft
-from models.pose_regression_net import PoseRegressionNet
-from core.loss import PerJointMSELoss
-from core.loss import PerJointL1Loss
-from core.proposal import max_pool
+from . import pose_resnet
+from .cuboid_proposal_net_soft import CuboidProposalNetSoft
+from .pose_regression_net import PoseRegressionNet
+from ..core.loss import PerJointMSELoss
+from ..core.loss import PerJointL1Loss
+from ..core.proposal import max_pool
 from vedo import Volume, show
 import torch.nn.functional as F
-from utils.transforms import affine_transform_pts_cuda as do_transform
+from ..utils.transforms import affine_transform_pts_cuda as do_transform
 
 from scipy.optimize import linear_sum_assignment
 

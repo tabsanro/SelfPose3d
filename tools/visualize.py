@@ -9,13 +9,13 @@ from copy import deepcopy
 from munkres import Munkres
 from vedo import Points, Lines, Picture, show, Mesh, Point, Light, Plane, Arrows
 import colorcet
-import _init_paths
+# import _init_paths
 import subprocess
-from utils.transforms import get_affine_transform
-from utils.transforms import affine_transform, get_scale
-from utils.transforms import affine_transform_pts_cuda as do_transform
-import utils.cameras as cameras
-from utils.vis import COLORS, JOINTS_DEF, LIMBS15, LIMBS15_COLORS
+from SelfPose3d.utils.transforms import get_affine_transform
+from SelfPose3d.utils.transforms import affine_transform, get_scale
+from SelfPose3d.utils.transforms import affine_transform_pts_cuda as do_transform
+import SelfPose3d.utils.cameras as cameras
+from SelfPose3d.utils.vis import COLORS, JOINTS_DEF, LIMBS15, LIMBS15_COLORS
 
 PRED_FILE = "./results_publ/cam5_evaluation/predictions_dump_interval3.pkl"
 

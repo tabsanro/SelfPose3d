@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SelfPose3d"
+version = "0.1.0"
+description = "3D multi-person pose estimation from multi-view images."
+authors = [
+	{ name = "CAMMA-public" }
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+dependencies = [  
+    # Computer vision
+    "opencv-python>=4.5.0",
+    
+    # Scientific computing
+    "numpy>=1.21.0,<1.24.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.3.0",
+    
+    # Utilities
+    "tqdm>=4.60.0",
+    "json-tricks>=3.15.0",
+    "prettytable>=2.0.0",
+    "easydict>=1.9.0",
+    "PyYAML>=5.4.0",
+    "vedo>=2022.0.0,<2023.0.0",
+    "tensorboardX",
+]
+
+[tool.setuptools]
+package-dir = {"SelfPose3d" = "lib"}
+packages = ["SelfPose3d"]
