@@ -1,5 +1,6 @@
 data/panoptic-toolbox
-results
+results/
+models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

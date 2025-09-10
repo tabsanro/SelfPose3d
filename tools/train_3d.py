@@ -22,7 +22,7 @@ import pprint
 import logging
 import json
 
-import _init_paths
+# import _init_paths
 from SelfPose3d.core.config import config
 from SelfPose3d.core.config import update_config
 from SelfPose3d.core.function import train_3d, train_3d_ssv, validate_3d
@@ -237,5 +237,9 @@ def main():
 
 
 if __name__ == "__main__":
+    import sys
+    default_argv = [
+        '--cfg', 'configs/panoptic_ssl/resnet50/backbone_pseudo_hrnet_soft_9videos.yaml',
+    ]
     torch.multiprocessing.set_sharing_strategy('file_system')
     main()
