@@ -24,7 +24,7 @@ from ..utils.vis import save_debug_3d_images_all
 logger = logging.getLogger(__name__)
 
 
-def train_3d_ssv(config, model, optimizer, loader, epoch, output_dir, writer_dict):
+def train_3d_ssv(config, model, optimizer, loader, epoch, output_dir=None, writer_dict=None):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -117,7 +117,7 @@ def train_3d_ssv(config, model, optimizer, loader, epoch, output_dir, writer_dic
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % config.PRINT_FREQ == 0:
+        if i % config.PRINT_FREQ == 0 and output_dir is not None and writer_dict is not None:
             gpu_memory_usage = torch.cuda.memory_allocated(0)
             msg = (
                 "Epoch: [{0}][{1}/{2}]\t"
@@ -216,7 +216,7 @@ def train_3d_ssv(config, model, optimizer, loader, epoch, output_dir, writer_dic
             #     config, meta, pred, inputs, targets_2d, heatmaps, prefix
             # )
 
-def train_3d(config, model, optimizer, loader, epoch, output_dir, writer_dict):
+def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_dict=None):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -299,7 +299,7 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir, writer_dict):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % config.PRINT_FREQ == 0:
+        if i % config.PRINT_FREQ == 0 and output_dir is not None and writer_dict is not None:
             gpu_memory_usage = torch.cuda.memory_allocated(0) / 1024.0 / 1024.0 / 1024.0
             msg = (
                 "Epoch: [{0}][{1}/{2}]\t"

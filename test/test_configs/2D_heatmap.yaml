@@ -3,57 +3,45 @@ CUDNN:
   DETERMINISTIC: false
   ENABLED: true
 BACKBONE_MODEL: 'pose_resnet'
-MODEL: 'multi_person_posenet_ssv'
+MODEL: 'multi_person_posenet'
 DATA_DIR: ''
 GPUS: '0'
 OUTPUT_DIR: './results/adaptOR3D'
 LOG_DIR: './results/adaptOR3D'
 WORKERS: 6
 PRINT_FREQ: 100
-WITH_SSV: True
+WITH_SSV: false
 
 DATASET:
   COLOR_RGB: True
-  TRAIN_DATASET: 'panoptic_ssv'
+  TRAIN_DATASET: 'panoptic'
   TEST_DATASET: 'panoptic'
   DATA_FORMAT: jpg
   DATA_AUGMENTATION: False
   SUFFIX: "pseudo_hrnet_soft_9videos"
   FLIP: False
   ROOT: 'data/panoptic-toolbox/data/' # 'data/panoptic/'
-  ROT_FACTOR1: 45
-  ROT_FACTOR2: 45
-  SCALE_FACTOR1: 0.35
-  SCALE_FACTOR2: 0.35
-  APPLY_CUTOUT: False
-  APPLY_RANDAUG: False
+  ROT_FACTOR: 45
+  SCALE_FACTOR: 0.35
   TEST_SUBSET: 'validation'
   TRAIN_SUBSET: 'train'
   ROOTIDX: 2
   CAMERA_NUM: 5
 NETWORK:
-  PRETRAINED_BACKBONE: "models/backbone_epoch20.pth.tar"
-  PRETRAINED:  ''  # 'models/pytorch/imagenet/resnet50-19c8e357.pth'
+  PRETRAINED_BACKBONE: ""
+  PRETRAINED:  "./models/pose_resnet_50_384x288.pth"
   TARGET_TYPE: gaussian
-  INIT_ROOTNET: ''
-  TRAIN_BACKBONE: False
-  TRAIN_ONLY_ROOTNET: True
-  ROOTNET_TRAIN_SYNTH: True
-  PRETRAINED_BACKBONE_PSEUDOGT: True
-  ROOTNET_BUFFER_SIZE: 10000
-  IMAGE_SIZE_ORIG:
-  - 1920
-  - 1080  
+  TRAIN_BACKBONE: True
+  TRAIN_ONLY_2D: True
   IMAGE_SIZE:
-  - 960
-  - 512
-  HEATMAP_SIZE:
-  - 240
   - 128
+  - 128
+  HEATMAP_SIZE:
+  - 32
+  - 32
   SIGMA: 3
   NUM_JOINTS: 15
   USE_GT: False
-  ROOTNET_ROOTHM: True
 POSE_RESNET:
   FINAL_CONV_KERNEL: 1
   DECONV_WITH_BIAS: False
@@ -70,15 +58,15 @@ POSE_RESNET:
 LOSS:
   USE_TARGET_WEIGHT: true
 TRAIN:
-  BATCH_SIZE: 1
+  BATCH_SIZE: 4
   SHUFFLE: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 3
+  END_EPOCH: 1
   RESUME: true
   OPTIMIZER: adam
   LR: 0.0001
   LR_FACTOR: 0.1
-  LR_STEP: [2]  
+  LR_STEP: [10, 15]
 TEST:
   MODEL_FILE: 'model_best.pth.tar'
   BATCH_SIZE: 4
@@ -86,8 +74,6 @@ DEBUG:
   DEBUG: true
   SAVE_HEATMAPS_GT: true
   SAVE_HEATMAPS_PRED: true
-  SAVE_3D_POSES: false
-  SAVE_3D_ROOTS: true
 MULTI_PERSON:
   SPACE_SIZE:
     - 8000.0
