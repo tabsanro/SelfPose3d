@@ -16,3 +16,5 @@ from .shelf import Shelf as shelf
 from .shelf_ssv import shelf_ssv as shelf_ssv
 from .campus import Campus as campus
 from .campus_ssv import campus_ssv as campus_ssv
+from .human36m import Human36M as human36m
+from .human36m_ssv import Human36MSSV as human36m_ssv
