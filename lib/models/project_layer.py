@@ -13,26 +13,11 @@ from ..utils.transforms import affine_transform_pts_cuda as do_transform
 
 
 class ProjectLayer(nn.Module):
-    def __init__(self, cfg, caller=None):
+    def __init__(self, cfg):
         super(ProjectLayer, self).__init__()
 
         self.img_size = cfg.NETWORK.IMAGE_SIZE
         self.heatmap_size = cfg.NETWORK.HEATMAP_SIZE
-        self.caller = caller
-
-        if self.caller == "rootnet":
-            self.cube_size = cfg.MULTI_PERSON.INITIAL_CUBE_SIZE
-        elif self.caller == "posenet":
-            self.clamp_cube_size = cfg.PICT_STRUCT.CUBE_SIZE
-            self.clamp_grid_size = cfg.PICT_STRUCT.GRID_SIZE
-            self.cube_size = [
-                int(round(self.clamp_cube_size[0] * self.grid_size[0] / self.clamp_grid_size[0])),
-                int(round(self.clamp_cube_size[1] * self.grid_size[1] / self.clamp_grid_size[1])),
-                int(round(self.clamp_cube_size[2] * self.grid_size[2] / self.clamp_grid_size[2])),
-            ]
-            self.clamp_nbins = self.clamp_cube_size[0] * self.clamp_cube_size[1] * self.clamp_cube_size[2]
-        else:
-            raise ValueError("Unknown caller of ProjectLayer: {}".format(self.caller))
 
     def compute_grid(self, boxSize, boxCenter, nBins, device=None):
         if isinstance(boxSize, int) or isinstance(boxSize, float):
@@ -53,7 +38,7 @@ class ProjectLayer(nn.Module):
         gridz = gridz.contiguous().view(-1, 1)
         grid = torch.cat([gridx, gridy, gridz], dim=1)
         return grid
-    
+
     def get_voxel(self, heatmaps, meta, grid_size, grid_center, cube_size, flip_xcoords=None):
         device = heatmaps[0].device
         batch_size = heatmaps[0].shape[0]
@@ -115,7 +100,6 @@ class ProjectLayer(nn.Module):
 
         cubes = cubes.view(batch_size, num_joints, cube_size[0], cube_size[1], cube_size[2])  ##
         return cubes, grids
-
 
     def forward(self, heatmaps, meta, grid_size, grid_center, cube_size, flip_xcoords=None):
         cubes, grids = self.get_voxel(heatmaps, meta, grid_size, grid_center, cube_size, flip_xcoords=flip_xcoords)

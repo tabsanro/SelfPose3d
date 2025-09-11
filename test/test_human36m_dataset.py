@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Test Human36M SSV Dataset')
     parser.add_argument('--cfg', 
                        help='experiment configure file name',
-                       default='/home/dojan/SelfPose3d/configs/human36m/backbone_h36m.yaml',
+                       default='configs/human36m/backbone_h36m.yaml',
                        type=str)
     parser.add_argument('opts',
                        help="Modify config options using the command-line",

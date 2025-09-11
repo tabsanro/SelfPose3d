@@ -1,24 +1,36 @@
-'''
-Project: SelfPose3d - Human36M Multi-view Dataset
------
-Copyright (c) University of Strasbourg, All Rights Reserved.
-'''
+# Copyright 2021 Garena Online Private Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import os.path as osp
 import numpy as np
-import math
-import torch
-import json
-import copy
-import logging
+# import json_tricks as json
 import pickle
+# import scipy.io as scio
+# import logging
+import copy
+import os
+# from collections import OrderedDict
 
 from .JointsDataset import JointsDataset
 from ..utils.cameras_cpu import camera_to_world_frame, project_pose
+# import cv2
 
-logger = logging.getLogger(__name__)
-
-# Human36M 조인트 정의 (17개)
+INF = 1e8
 JOINTS_DEF = {
     "pelvis": 0,
     "r_hip": 1, 
@@ -48,262 +60,159 @@ LIMBS = [
     [0, 4], [4, 5], [5, 6]
 ]
 
-# Human36M 카메라 설정 (4개 카메라)
-TRAIN_CAMERAS = [0, 1, 2, 3]  # 모든 카메라 사용
-VAL_CAMERAS = [0, 1, 2, 3]    # 모든 카메라 사용
-
 
 class Human36M(JointsDataset):
     def __init__(self, cfg, image_set, is_train, transform=None):
         super().__init__(cfg, image_set, is_train, transform)
-        
         self.pixel_std = 200.0
         self.joints_def = JOINTS_DEF
         self.limbs = LIMBS
         self.num_joints = len(JOINTS_DEF)
-        
-        # Human36M specific settings
-        dataset_name = 'Human36M'
-        self.data_split = image_set
-        self.img_dir = osp.join(cfg.DATASET.ROOT, dataset_name, 'images')
-        self.annot_path = osp.join(cfg.DATASET.ROOT, dataset_name, 'annotations')
-        
-        self.subject_genders = {1: 'female', 5: 'female', 6: 'male', 7: 'female', 8: 'male', 9: 'male', 11: 'male'}
-        self.protocol = 2
-        self.action_name = ['Directions', 'Discussion', 'Eating', 'Greeting', 'Phoning', 'Posing', 'Purchases',
-                            'Sitting', 'SittingDown', 'Smoking', 'Photo', 'Waiting', 'Walking', 'WalkDog',
-                            'WalkTogether']
-        self.fitting_thr = 25  # milimeter
 
-        # H36M joint set
-        self.human36_joint_num = 17
-        self.human36_joints_name = (
-        'Pelvis', 'R_Hip', 'R_Knee', 'R_Ankle', 'L_Hip', 'L_Knee', 'L_Ankle', 'Torso', 'Neck', 'Nose', 'Head',
-        'L_Shoulder', 'L_Elbow', 'L_Wrist', 'R_Shoulder', 'R_Elbow', 'R_Wrist')
-        self.human36_flip_pairs = ((1, 4), (2, 5), (3, 6), (14, 11), (15, 12), (16, 13))
-        self.human36_skeleton = (
-        (0, 7), (7, 8), (8, 9), (9, 10), (8, 11), (11, 12), (12, 13), (8, 14), (14, 15), (15, 16), (0, 1), (1, 2),
-        (2, 3), (0, 4), (4, 5), (5, 6))
-        self.human36_root_joint_idx = self.human36_joints_name.index('Pelvis')
-        self.human36_eval_joint = (1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15, 16)
-
-        # 카메라 설정
-        if self.image_set == "train":
-            self.cameras = TRAIN_CAMERAS
-        else:
-            self.cameras = VAL_CAMERAS
-            
-        self.num_views = len(self.cameras)
-        self.camera_num_total = len(self.cameras)
-        
-        # SelfPose3d 데이터베이스 파일 생성
-        self.db_file = "human36m_{}_cam{}_ssv.pkl".format(
-            self.image_set, self.camera_num_total
-        )
-        self.db_file = osp.join(self.dataset_root, self.db_file)
+        self.db_file = 'h36m_quickload_{}.pkl'.format(self.image_set)
+        self.db_file = os.path.join(self.dataset_root, self.db_file)
 
         if osp.exists(self.db_file):
-            info = torch.load(self.db_file)
-            self.db = info['db']
-            logger.info("=> load db length: {}".format(len(self.db)))
+            with open(self.db_file, 'rb') as f:
+                grouping_db = pickle.load(f)
+                self.grouping = grouping_db['grouping']
+                self.db = grouping_db['db']
         else:
             self.db = self._get_db()
-            info = {
-                'db': self.db
-            }
-            torch.save(info, self.db_file)
-            logger.info("=> dump db file: {}".format(self.db_file))
-            logger.info("=> dump db length: {}".format(len(self.db)))
+            self.grouping = self._get_group(self.db)
+            grouping_db_to_dump = {'grouping': self.grouping, 'db': self.db}
+            with open(self.db_file, 'wb') as f:
+                pickle.dump(grouping_db_to_dump, f)
 
-        self.db_size = len(self.db)
-
-    def get_subject(self):
-        if self.data_split == 'train':
-            if self.protocol == 1:
-                subject = [1, 5, 6, 7, 8, 9]
-            elif self.protocol == 2:
-                subject = [1, 5, 6, 7, 8]
-        elif self.data_split == 'test' or self.data_split == 'validation':
-            if self.protocol == 1:
-                subject = [11]
-            elif self.protocol == 2:
-                subject = [9, 11]
+        if self.is_train:
+            self.grouping = self.grouping[::5]
         else:
-            assert 0, print("Unknown subset")
-        return subject
+            self.grouping = self.grouping[::64]
 
-    def get_subsampling_ratio(self):
-        if self.data_split == 'train':
-            return 5
-        elif self.data_split == 'test' or self.data_split == 'validation':
-            return 50
-        else:
-            assert 0, print('Unknown subset')
-
-    def _get_cam(self, camera_param):
-        """카메라 파라미터를 SelfPose3d 형식으로 변환"""
-        R, t, f, c = camera_param['R'], camera_param['t'], camera_param['f'], camera_param['c']
-        R = np.array(R, dtype=np.float32)
-        t = np.array(t, dtype=np.float32)
-        f = np.array(f, dtype=np.float32)
-        c = np.array(c, dtype=np.float32)
-        
-        our_cam = {
-            "R": R,
-            "T": -np.dot(R.T, t).reshape(3, 1),  # mm 단위로 변환
-            "fx": np.array(f[0], dtype=np.float32),  # 스칼라를 배열로 변환
-            "fy": np.array(f[1], dtype=np.float32),  # 스칼라를 배열로 변환
-            "cx": np.array(c[0], dtype=np.float32),  # 스칼라를 배열로 변환
-            "cy": np.array(c[1], dtype=np.float32),  # 스칼라를 배열로 변환
-            "k": np.zeros((3, 1), dtype=np.float32),  # (3,1) shape
-            "p": np.zeros((2, 1), dtype=np.float32)   # (2,1) shape
-        }
-        return our_cam
+        self.group_size = len(self.grouping)
+        self.selected_cam = [0, 1, 2, 3]
+        self.num_views = len(self.selected_cam)
 
     def _get_db(self):
-        """Human36M 데이터를 SelfPose3d 형식으로 변환"""
-        print('Load annotations of Human36M Protocol ' + str(self.protocol))
-        subject_list = self.get_subject()
-        sampling_ratio = self.get_subsampling_ratio()
-        
-        db = []
-        
-        for subject in subject_list:
-            print(f"Processing subject {subject}...")
-            
-            # 데이터 로드
-            with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_data.json'), 'r') as f:
-                data_annot = json.load(f)
-            
-            # 카메라 로드
-            with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_camera.json'), 'r') as f:
-                cameras = json.load(f)
-            
-            # 관절 좌표 로드
-            with open(osp.join(self.annot_path, 'Human36M_subject' + str(subject) + '_joint_3d.json'), 'r') as f:
-                joints = json.load(f)
-            
-            # 이미지와 어노테이션 매핑
-            images = data_annot.get('images', [])
-            annotations = data_annot.get('annotations', [])
-            
-            # 이미지 ID를 키로 하는 딕셔너리 생성
-            img_dict = {img['id']: img for img in images}
-            
-            for ann in annotations:
-                image_id = ann['image_id']
-                if image_id not in img_dict:
-                    continue
-                    
-                img = img_dict[image_id]
-                
-                # 프레임 샘플링 체크
-                frame_idx = img['frame_idx']
-                if frame_idx % sampling_ratio != 0:
-                    continue
-                    
-                subject_id = img['subject']
-                action_idx = img['action_idx']
-                subaction_idx = img['subaction_idx']
-                cam_idx = img['cam_idx']
-                
-                # 카메라 필터링 - 선택된 카메라만 사용
-                if cam_idx not in self.cameras:
-                    continue
+        anno_file = osp.join(self.dataset_root,
+                             'h36m_{}.pkl'.format(self.image_set))
+        with open(anno_file, 'rb') as f:
+            dataset = pickle.load(f)
+        # process all item to Panoptic Format!!!
+        nitems = len(dataset)
+        for i in range(nitems):
+            all_poses_3d = []
+            all_poses_vis_3d = []
+            all_poses = []
+            all_poses_vis = []
 
-                # 카메라 파라미터 변환
-                cam_param = cameras[str(cam_idx)]
-                our_cam = self._get_cam(cam_param)
-                
-                # 관절 데이터 확인
-                try:
-                    joints_3d = np.array(joints[str(action_idx)][str(subaction_idx)][str(frame_idx)])
-                    joints_3d = \
-                        camera_to_world_frame(
-                            joints_3d,
-                            our_cam['R'],
-                            our_cam['T']
-                        )
-                    joints_2d = project_pose(joints_3d, our_cam)
-                except KeyError:
-                    continue
-                
-                # 이미지 경로
-                img_path = osp.join(self.img_dir, img['file_name'])
-                
-                # 3D 조인트 (Human36M에서는 이미 카메라 좌표계)
-                joints_3d = np.array(joints_3d, dtype=np.float32).reshape(-1, 3)
-                
-                # 단일 사람만 처리 (Human36M은 단일 사람 데이터셋)
-                if len(joints_3d) != self.num_joints:
-                    continue
-                
-                # bbox 처리
-                bbox = np.array(ann['bbox'])
-                if len(bbox) == 4:  # [x, y, w, h] 형식
-                    bbox = self._process_bbox(bbox)
-                    if bbox is None:
-                        continue
-                
-                # visibility 설정 (모든 조인트가 보인다고 가정)
-                joints_vis = np.ones((self.num_joints,))
-                
-                # panoptic_ssv와 동일한 형식으로 데이터 구성
-                db.append({
-                    "key": f"s{subject_id:02d}_act{action_idx:02d}_subact{subaction_idx:02d}_cam{cam_idx:02d}_frame{frame_idx:06d}",
-                    "image": img_path,
-                    "joints_3d": [joints_3d],  # 리스트로 감싸기 (다중 사람 형식)
-                    "joints_3d_vis": [np.ones((self.num_joints, 3))],  # 3D visibility
-                    "joints_2d": [joints_2d],  # 리스트로 감싸기
-                    "joints_2d_vis": [np.ones((self.num_joints, 2))],  # 2D visibility
-                    "camera": our_cam,
-                })
-        
-        print(f"Total samples: {len(db)}")
-        return db
+            camera = self._get_cam(dataset[i]['camera'])
+            # NOTE: note that h36m joints_3d is in camera frame
+            joints_3d = \
+                camera_to_world_frame(
+                    dataset[i]['joints_3d'],
+                    camera['R'],
+                    camera['T'])
+            img_path = osp.join(self.dataset_root,
+                                'images', dataset[i]['image'])
 
-    def _project_3d_to_2d(self, joints_3d, camera):
-        """3D 조인트를 2D로 프로젝션"""
+            if True:  # use projected 2d pose
+                joints_2d = project_pose(joints_3d, camera)
+            else:  # use original 2d pose
+                joints_2d = dataset[i]['joints_2d']
+            # """ This for 2D joints visualization
+            # import cv2
+            # img = cv2.imread(img_path)
+            # for joint in joints_2d:
+            # cv2.circle(img, (int(joint[0]),
+            # int(joint[1])), 3, [0, 0, 255], -1)
+            # cv2.imwrite('test.jpg', img)
+            # import pdb; pdb.set_trace()
+            # """
+
+            joints_3d_vis = dataset[i]['joints_vis']
+            all_poses_3d.append(joints_3d)
+            all_poses_vis_3d.append(joints_3d_vis)
+
+            joints_2d_vis = joints_3d_vis[:, :2]
+            all_poses.append(joints_2d)
+            all_poses_vis.append(joints_2d_vis)
+
+            dataset[i]['joints_2d_ori'] = dataset[i]['joints_2d']
+            dataset[i]['joints_3d'] = all_poses_3d
+            dataset[i]['joints_3d_vis'] = all_poses_vis_3d
+            dataset[i]['joints_2d'] = all_poses
+            dataset[i]['joints_2d_vis'] = all_poses_vis
+
+            our_cam = {}
+            our_cam['R'] = camera['R']
+            our_cam['T'] = camera['T']
+            our_cam['standard_T'] = -np.dot(camera['R'], camera['T'])
+            our_cam['K'] = camera['K']
+            our_cam['fx'] = camera['fx'][0]
+            our_cam['fy'] = camera['fy'][0]
+            our_cam['cx'] = camera['cx'][0]
+            our_cam['cy'] = camera['cy'][0]
+            our_cam['k'] = camera['k'].reshape(3, 1)
+            our_cam['p'] = camera['p'].reshape(2, 1)
+
+            dataset[i]['camera_ori'] = dataset[i]['camera']
+            dataset[i]['camera'] = our_cam
+
+            dataset[i]['image_name'] = dataset[i]['image']
+            dataset[i]['image'] = img_path
+
+        return dataset
+
+    def _get_cam(self, camera):
         fx, fy = camera['fx'], camera['fy']
         cx, cy = camera['cx'], camera['cy']
-        
-        joints_2d = np.zeros((len(joints_3d), 2))
-        for i, joint in enumerate(joints_3d):
-            if joint[2] > 0:  # z > 0인 경우만
-                joints_2d[i, 0] = joint[0] * fx / joint[2] + cx
-                joints_2d[i, 1] = joint[1] * fy / joint[2] + cy
-        
-        return joints_2d
+        K = np.eye(3)
+        K[0, 0] = fx
+        K[1, 1] = fy
+        K[0, 2] = cx
+        K[1, 2] = cy
+        camera['K'] = K
+        return camera
 
-    def _process_bbox(self, bbox):
-        """bbox 처리 (x, y, w, h -> 유효한 bbox)"""
-        x, y, w, h = bbox
-        if w <= 0 or h <= 0:
-            return None
-        return np.array([x, y, w, h])
+    def _get_group(self, db):
+        grouping = {}
+        nitems = len(db)
+        for i in range(nitems):
+            subject = db[i]['subject']
+            action = db[i]['action']
+            subaction = db[i]['subaction']
+            # filter out damaged actions
+            if subject == 9 and \
+                    ((action == 5 and subaction == 2)
+                     or (action == 10 and subaction == 2)
+                     or (action == 13 and subaction == 1)):
+                continue
+            keystr = self._get_key_str(db[i])
+            camera_id = db[i]['camera_id']
+            if keystr not in grouping:
+                grouping[keystr] = [-1, -1, -1, -1]
+            grouping[keystr][camera_id] = i
 
-    def _get_scale(self, bbox):
-        """bbox에서 스케일 계산"""
-        return max(bbox[2], bbox[3]) / 200.0
+        filtered_grouping = []
+        for _, v in grouping.items():
+            # remove all samples without full views
+            if np.all(np.array(v) != -1):
+                filtered_grouping.append(v)
 
-    def _get_center(self, bbox):
-        """bbox에서 중심점 계산"""
-        return np.array([bbox[0] + bbox[2] * 0.5, bbox[1] + bbox[3] * 0.5])
+        return filtered_grouping
 
-    def __len__(self):
-        return self.db_size // self.num_views
+    def _get_key_str(self, datum):
+        return 's_{:02}_act_{:02}_subact_{:02}_imgid_{:06}'.format(
+            datum['subject'], datum['action'], datum['subaction'],
+            datum['image_id'])
 
     def __getitem__(self, idx):
-        input, target, weight, target_3d, meta, input_heatmap = (
-            [],
-            [],
-            [],
-            [],
-            [],
-            [],
-        )
-        for k in range(self.num_views):
-            i, t, w, t3, m, ih = super().__getitem__(self.camera_num_total * idx + self.cameras[k])
+        input, target, weight, target_3d, meta, input_heatmap \
+            = [], [], [], [], [], []
+        items = self.grouping[idx]
+        for item in items:
+            i, t, w, t3, m, ih = super().__getitem__(item)
             if i is None:
                 continue
             input.append(i)
@@ -312,51 +221,46 @@ class Human36M(JointsDataset):
             target_3d.append(t3)
             meta.append(m)
             input_heatmap.append(ih)
+
         return input, target, weight, target_3d, meta, input_heatmap
 
+    def __len__(self):
+        return self.group_size
+
     def evaluate(self, preds):
-        """SelfPose3d 스타일 평가 (panoptic_ssv와 동일한 구조)"""
         eval_list = []
-        gt_num = self.db_size // self.num_views
-        assert len(preds) == gt_num, "number mismatch"
+        gt_num = self.group_size
+        assert len(preds) == gt_num, 'number mismatch'
 
         total_gt = 0
-        for i in range(gt_num):
-            index = self.num_views * i
-            db_rec = copy.deepcopy(self.db[index])
-            joints_3d = db_rec["joints_3d"]
-            joints_3d_vis = db_rec["joints_3d_vis"]
+        for i, items in enumerate(self.grouping):
+            db_rec = copy.deepcopy(self.db[items[0]])
+            joints_3d = db_rec['joints_3d']
+            joints_3d_vis = db_rec['joints_3d_vis']
 
             if len(joints_3d) == 0:
                 continue
 
             pred = preds[i].copy()
-            pred = pred[pred[:, 0, 3] >= 0]  # valid한 예측만 선택
-            
+            pred = pred[pred[:, 0, 3] >= 0]
             for pose in pred:
                 mpjpes = []
                 for (gt, gt_vis) in zip(joints_3d, joints_3d_vis):
                     vis = gt_vis[:, 0] > 0
-                    mpjpe = np.mean(
-                        np.sqrt(
-                            np.sum((pose[vis, 0:3] - gt[vis]) ** 2, axis=-1)
-                        )
-                    )
+                    mpjpe = np.mean(np.sqrt(
+                        np.sum((pose[vis, 0:3] - gt[vis]) ** 2, axis=-1)))
                     mpjpes.append(mpjpe)
                 min_gt = np.argmin(mpjpes)
                 min_mpjpe = np.min(mpjpes)
-                score = pose[0, 4] if pose.shape[1] > 4 else 1.0  # Human36M에는 score가 없을 수 있음
-                eval_list.append(
-                    {
-                        "mpjpe": float(min_mpjpe),
-                        "score": float(score),
-                        "gt_id": int(total_gt + min_gt),
-                    }
-                )
+                score = pose[0, 4]
+                eval_list.append({
+                    "mpjpe": float(min_mpjpe),
+                    "score": float(score),
+                    "gt_id": int(total_gt + min_gt)
+                })
 
             total_gt += len(joints_3d)
 
-        # 임계값별 평가
         mpjpe_threshold = np.arange(25, 155, 25)
         aps = []
         recs = []
@@ -365,16 +269,14 @@ class Human36M(JointsDataset):
             aps.append(ap)
             recs.append(rec)
 
-        return (
-            aps,
-            recs,
-            self._eval_list_to_mpjpe(eval_list),
-            self._eval_list_to_recall(eval_list, total_gt),
-        )
+        return \
+            aps, \
+            recs, \
+            self._eval_list_to_mpjpe(eval_list), \
+            self._eval_list_to_recall(eval_list, total_gt)
 
     @staticmethod
     def _eval_list_to_ap(eval_list, total_gt, threshold):
-        """정확도(AP) 계산 (panoptic_ssv와 동일)"""
         eval_list.sort(key=lambda k: k["score"], reverse=True)
         total_num = len(eval_list)
 
@@ -403,7 +305,6 @@ class Human36M(JointsDataset):
 
     @staticmethod
     def _eval_list_to_mpjpe(eval_list, threshold=500):
-        """MPJPE 계산 (panoptic_ssv와 동일)"""
         eval_list.sort(key=lambda k: k["score"], reverse=True)
         gt_det = []
 
@@ -417,7 +318,35 @@ class Human36M(JointsDataset):
 
     @staticmethod
     def _eval_list_to_recall(eval_list, total_gt, threshold=500):
-        """Recall 계산 (panoptic_ssv와 동일)"""
         gt_ids = [e["gt_id"] for e in eval_list if e["mpjpe"] < threshold]
 
         return len(np.unique(gt_ids)) / total_gt
+
+
+if __name__ == "__main__":
+    import argparse
+    from core.config import config
+    from core.config import update_config
+    import torchvision.transforms as transforms
+
+    def parse_args():
+        parser = argparse.ArgumentParser(description='Train keypoints network')
+        parser.add_argument('--cfg',
+                            help='experiment configure file name',
+                            required=True, type=str)
+
+        args, rest = parser.parse_known_args()
+        update_config(args.cfg)
+
+        return args
+
+    args = parse_args()
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    dataset = Human36M(
+        config, config.DATASET.TRAIN_SUBSET, False,
+        transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ]))
+    dataset.__getitem__(1)

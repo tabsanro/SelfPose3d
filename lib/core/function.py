@@ -295,6 +295,7 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
             losses.update(loss.item())
         else:
             loss_2d = loss_2d.mean()
+            losses_2d.update(loss_2d.item())
             loss_3d = loss_3d.mean()
             loss_cord = loss_cord.mean()
             losses_3d.update(loss_3d.item())
