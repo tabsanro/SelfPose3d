@@ -227,7 +227,7 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
     model.train()
     if not config.NETWORK.TRAIN_BACKBONE:
         if model.module.backbone is not None:
-            model.module.backbone.eval()  # Comment out this line if you want to train 2D
+            model.module.backbone.eval()
 
     accumulation_steps = 4
     accu_loss_3d = 0
@@ -243,7 +243,11 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
     ) in enumerate(loader):
         data_time.update(time.time() - end)
 
-        if "panoptic" in config.DATASET.TEST_DATASET or "shelf" in config.DATASET.TEST_DATASET:
+        # Human36M 데이터셋 지원 추가
+        if ("panoptic" in config.DATASET.TEST_DATASET or 
+            "shelf" in config.DATASET.TEST_DATASET or 
+            "human36m" in config.DATASET.TEST_DATASET.lower()):
+            
             if config.NETWORK.TRAIN_ONLY_2D:
                 loss_2d, heatmaps = model(
                     views=inputs,
@@ -264,7 +268,26 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
             pred, heatmaps, grid_centers, loss_2d, loss_3d, loss_cord = model(
                 meta=meta, targets_3d=targets_3d[0], input_heatmaps=input_heatmap
             )
+        else:
+            # 기본 처리 (다른 데이터셋들)
+            if config.NETWORK.TRAIN_ONLY_2D:
+                loss_2d, heatmaps = model(
+                    views=inputs,
+                    meta=meta,
+                    targets_2d=targets_2d,
+                    weights_2d=weights_2d,
+                    targets_3d=None,
+                )
+            else:
+                pred, heatmaps, grid_centers, loss_2d, loss_3d, loss_cord = model(
+                    views=inputs,
+                    meta=meta,
+                    targets_2d=targets_2d,
+                    weights_2d=weights_2d,
+                    targets_3d=targets_3d[0],
+                )
 
+        # 나머지 코드는 동일...
         if config.NETWORK.TRAIN_ONLY_2D:
             loss_2d = loss_2d.mean()
             losses_2d.update(loss_2d.item())
@@ -282,19 +305,6 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-        # if loss_cord > 0:
-        #     optimizer.zero_grad()
-        #     (loss_2d + loss_cord).backward()
-        #     optimizer.step()
-
-        # if accu_loss_3d > 0 and (i + 1) % accumulation_steps == 0:
-        #     optimizer.zero_grad()
-        #     accu_loss_3d.backward()
-        #     optimizer.step()
-        #     accu_loss_3d = 0.0
-        # else:
-        #     accu_loss_3d += loss_3d / accumulation_steps
 
         batch_time.update(time.time() - end)
         end = time.time()
@@ -366,7 +376,13 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
             input_heatmap,
         ) in enumerate(loader):
             data_time.update(time.time() - end)
-            if "panoptic" in config.DATASET.TEST_DATASET or "shelf" in config.DATASET.TEST_DATASET or "campus" in config.DATASET.TEST_DATASET:
+            
+            # Human36M 지원 추가
+            if ("panoptic" in config.DATASET.TEST_DATASET or 
+                "shelf" in config.DATASET.TEST_DATASET or 
+                "campus" in config.DATASET.TEST_DATASET or
+                "human36m" in config.DATASET.TEST_DATASET.lower()):
+                
                 if with_ssv:
                     pred, heatmaps, grid_centers = model(
                         views1=inputs,
@@ -391,11 +407,13 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
                             weights_2d=weights_2d,
                             targets_3d=targets_3d[0],
                         )
+            
             if not config.NETWORK.TRAIN_ONLY_2D:
                 for b in range(pred.shape[0]):
                     preds.append(pred[b].detach().cpu().numpy().copy())
                     roots.append(grid_centers[b].detach().cpu().numpy().copy())
 
+            # 나머지 코드는 동일...
             batch_time.update(time.time() - end)
             end = time.time()
             if i % config.PRINT_FREQ == 0 or i == len(loader) - 1:
@@ -432,6 +450,7 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
                 #     config, meta, pred, inputs, targets_2d, heatmaps, prefix
                 # )
 
+    # 평가 부분에서 Human36M 추가
     metric = None
     if config.NETWORK.TRAIN_ONLY_2D:
         msg = "training only the backbone; no evaluation for this part"
@@ -474,6 +493,12 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
             logger.info(msg)
             metric = np.mean(aps)
 
+        elif "human36m" in config.DATASET.TEST_DATASET.lower():
+            # Human36M 평가 (간단한 MPJPE 계산)
+            mpjpe = loader.dataset.evaluate(preds)
+            msg = f"MPJPE: {mpjpe:.3f}mm"
+            logger.info(msg)
+            metric = mpjpe
         elif "campus" in config.DATASET.TEST_DATASET or "shelf" in config.DATASET.TEST_DATASET:
             actor_pcp, avg_pcp, _, recall = loader.dataset.evaluate(preds)
             msg = "     | Actor 1 | Actor 2 | Actor 3 | Average | \n" " PCP |  {pcp_1:.2f}  |  {pcp_2:.2f}  |  {pcp_3:.2f}  |  {pcp_avg:.2f}  |\t Recall@500mm: {recall:.4f}".format(
