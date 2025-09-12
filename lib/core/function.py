@@ -451,7 +451,6 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
                 #     config, meta, pred, inputs, targets_2d, heatmaps, prefix
                 # )
 
-    # 평가 부분에서 Human36M 추가
     metric = None
     if config.NETWORK.TRAIN_ONLY_2D:
         msg = "training only the backbone; no evaluation for this part"
@@ -494,12 +493,6 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
             logger.info(msg)
             metric = np.mean(aps)
 
-        elif "human36m" in config.DATASET.TEST_DATASET.lower():
-            # Human36M 평가 (간단한 MPJPE 계산)
-            mpjpe = loader.dataset.evaluate(preds)
-            msg = f"MPJPE: {mpjpe:.3f}mm"
-            logger.info(msg)
-            metric = mpjpe
         elif "campus" in config.DATASET.TEST_DATASET or "shelf" in config.DATASET.TEST_DATASET:
             actor_pcp, avg_pcp, _, recall = loader.dataset.evaluate(preds)
             msg = "     | Actor 1 | Actor 2 | Actor 3 | Average | \n" " PCP |  {pcp_1:.2f}  |  {pcp_2:.2f}  |  {pcp_3:.2f}  |  {pcp_avg:.2f}  |\t Recall@500mm: {recall:.4f}".format(

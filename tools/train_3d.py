@@ -107,7 +107,7 @@ def main():
         batch_size=config.TRAIN.BATCH_SIZE * len(gpus),
         shuffle=config.TRAIN.SHUFFLE,
         num_workers=config.WORKERS,
-        pin_memory=False,
+        pin_memory=True,
     )
 
     test_dataset = eval("dataset." + config.DATASET.TEST_DATASET)(
@@ -127,7 +127,7 @@ def main():
         batch_size=config.TEST.BATCH_SIZE * len(gpus),
         shuffle=False,
         num_workers=config.WORKERS,
-        pin_memory=False,
+        pin_memory=True,
     )
 
     cudnn.benchmark = config.CUDNN.BENCHMARK
@@ -237,5 +237,11 @@ def main():
 
 
 if __name__ == "__main__":
+    import sys
+    default_argv = [
+        "--cfg", "configs/human36m/h36m.yaml"
+    ]
+    if len(sys.argv) == 1:
+        sys.argv.extend(default_argv)
     torch.multiprocessing.set_sharing_strategy('file_system')
     main()
