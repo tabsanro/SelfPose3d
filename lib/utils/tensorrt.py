@@ -31,7 +31,7 @@ class Int8Calibrator(torch.utils.Data.Dataset):
 
     def __len__(self) -> int:
         return len(self.data)
-
+ 
     def __getitem__(self, idx: int) -> Any:
         return self.data[idx]
 
