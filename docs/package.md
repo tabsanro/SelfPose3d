@@ -8,8 +8,9 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvi
 pip install -e .
 ```
 
-## optional: tensorRT 설치
+## optional: tensorRT, torch2trt 설치
 ```bash
+pip install tensorrt
 git clone https://github.com/NVIDIA-AI-IOT/torch2trt
 cd torch2trt
 python setup.py install
