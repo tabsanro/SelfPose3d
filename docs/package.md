@@ -7,3 +7,12 @@ conda activate selfpose3d
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
 pip install -e .
 ```
+
+## optional: tensorRT 설치
+```bash
+git clone https://github.com/NVIDIA-AI-IOT/torch2trt
+cd torch2trt
+python setup.py install
+cd ..
+rm -rf torch2trt
+```
