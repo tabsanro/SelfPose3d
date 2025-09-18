@@ -243,68 +243,67 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
     ) in enumerate(loader):
         data_time.update(time.time() - end)
 
-        # Human36M 데이터셋 지원 추가
-        if ("panoptic" in config.DATASET.TEST_DATASET or 
-            "shelf" in config.DATASET.TEST_DATASET or 
-            "human36m" in config.DATASET.TEST_DATASET.lower()):
-            
-            if config.NETWORK.TRAIN_ONLY_2D:
-                loss_2d, heatmaps = model(
-                    views=inputs,
-                    meta=meta,
-                    targets_2d=targets_2d,
-                    weights_2d=weights_2d,
-                    targets_3d=None,
-                )
-            else:
-                pred, heatmaps, grid_centers, loss_2d, loss_3d, loss_cord = model(
-                    views=inputs,
-                    meta=meta,
-                    targets_2d=targets_2d,
-                    weights_2d=weights_2d,
-                    targets_3d=targets_3d[0],
-                )
-        elif "campus" in config.DATASET.TEST_DATASET:
-            pred, heatmaps, grid_centers, loss_2d, loss_3d, loss_cord = model(
-                meta=meta, targets_3d=targets_3d[0], input_heatmaps=input_heatmap
-            )
+        model_kwargs = {
+        'meta': meta,
+        'input_heatmaps': input_heatmap,
+        'targets_2d': targets_2d,
+        'weights_2d': weights_2d,
+        'targets_3d': targets_3d[0] if targets_3d is not None else None,
+         }
+    
+        # 데이터셋별 특별 처리
+        dataset_name = config.DATASET.TEST_DATASET.lower()
+        
+        if any(ds in dataset_name for ds in ['panoptic', 'shelf', 'human36m']):
+            model_kwargs['views'] = inputs
+        elif 'campus' in dataset_name:
+            # Campus 데이터셋은 views를 사용하지 않음
+            model_kwargs.pop('targets_2d', None)
+            model_kwargs.pop('weights_2d', None)
         else:
-            # 기본 처리 (다른 데이터셋들)
-            if config.NETWORK.TRAIN_ONLY_2D:
-                loss_2d, heatmaps = model(
-                    views=inputs,
-                    meta=meta,
-                    targets_2d=targets_2d,
-                    weights_2d=weights_2d,
-                    targets_3d=None,
-                )
-            else:
-                pred, heatmaps, grid_centers, loss_2d, loss_3d, loss_cord = model(
-                    views=inputs,
-                    meta=meta,
-                    targets_2d=targets_2d,
-                    weights_2d=weights_2d,
-                    targets_3d=targets_3d[0],
-                )
+            # 기본 처리
+            model_kwargs['views'] = inputs
 
-        # 나머지 코드는 동일...
-        if config.NETWORK.TRAIN_ONLY_2D:
-            loss_2d = loss_2d.mean()
+        result = model(**model_kwargs)
+
+        # Extract outputs
+        heatmaps = result['heatmaps']
+        if not config.NETWORK.TRAIN_ONLY_2D:
+            pred = result['pred']
+            grid_centers = result['grid_centers']
+
+        # Calculate losses and update meters
+        total_loss = None
+        
+        if 'loss_2d' in result:
+            loss_2d = result['loss_2d'].mean()
             losses_2d.update(loss_2d.item())
-            loss = loss_2d
-            losses.update(loss.item())
-        else:
-            loss_2d = loss_2d.mean()
-            losses_2d.update(loss_2d.item())
-            loss_3d = loss_3d.mean()
-            loss_cord = loss_cord.mean()
+            if total_loss is None:
+                total_loss = loss_2d
+            else:
+                total_loss = total_loss + loss_2d
+        
+        if 'loss_3d' in result:
+            loss_3d = result['loss_3d'].mean()
             losses_3d.update(loss_3d.item())
+            if total_loss is None:
+                total_loss = loss_3d
+            else:
+                total_loss = total_loss + loss_3d
+        
+        if 'loss_cord' in result:
+            loss_cord = result['loss_cord'].mean()
             losses_cord.update(loss_cord.item())
-            loss = loss_2d + loss_3d + loss_cord
-            losses.update(loss.item())
+            if total_loss is None:
+                total_loss = loss_cord
+            else:
+                total_loss = total_loss + loss_cord
+
+        if total_loss is not None:
+            losses.update(total_loss.item())
 
         optimizer.zero_grad()
-        loss.backward()
+        total_loss.backward()
         optimizer.step()
 
         batch_time.update(time.time() - end)
@@ -355,9 +354,6 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
             if not config.NETWORK.TRAIN_ONLY_2D:
                 save_debug_3d_cubes(config, meta[0], grid_centers, prefix2)
                 save_debug_3d_images(config, meta[0], pred, prefix2)
-            # save_debug_3d_images_all(
-            #    config, meta, pred, inputs, targets_2d, heatmaps, prefix
-            # )
 
 
 def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
