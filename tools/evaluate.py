@@ -97,7 +97,7 @@ def main():
     logger.info('=> test_model_file {}'.format(test_model_file))
     if config.TEST.MODEL_FILE and os.path.isfile(test_model_file):
         logger.info('=> load models state {}'.format(test_model_file))
-        model.module.load_state_dict(torch.load(test_model_file))
+        model.module.load_state_dict(torch.load(test_model_file), strict=False)
     else:
         raise ValueError('Check the model file for testing!')
 
@@ -123,35 +123,41 @@ def main():
             elif 'campus' in config.DATASET.TEST_DATASET or 'shelf' in config.DATASET.TEST_DATASET:
                 pred, _, _, _, _, _ = model(meta=meta, input_heatmaps=input_heatmap)
 
-            pred = pred.detach().cpu().numpy()
-            root = grid_centers.detach().cpu().numpy()
-            targets_3d = targets_3d[0].cpu().numpy()
-            for b in range(pred.shape[0]):
-                preds.append(pred[b])
-                roots.append(root[b])
+        #     pred = pred.detach().cpu().numpy()
+        #     root = grid_centers.detach().cpu().numpy()
+        #     targets_3d = targets_3d[0].cpu().numpy()
+        #     for b in range(pred.shape[0]):
+        #         preds.append(pred[b])
+        #         roots.append(root[b])
 
-        if 'panoptic' in config.DATASET.TEST_DATASET:
-            mpjpe_threshold = np.arange(25, 155, 25)
-            aps_all, recs_all, mpjpe_all, avg_recall_all = test_dataset.evaluate(preds, roots, final_output_dir)
-            types_eval = ["pose", "root"]
-            for aps, recs, mpjpe, recall, type_eval in zip(aps_all, recs_all, mpjpe_all, avg_recall_all, types_eval):
-                tb = PrettyTable()
-                print(f'Type: {type_eval}')
-                tb.field_names = ['Threshold/mm'] + [f'{i}' for i in mpjpe_threshold]
-                tb.add_row(['AP'] + [f'{ap * 100:.2f}' for ap in aps])
-                tb.add_row(['Recall'] + [f'{re * 100:.2f}' for re in recs])
-                print(tb)
-                print(f'MPJPE: {mpjpe:.2f}mm')
-                print(f'recall@500: {recall:.4f}, {np.array(recs).mean()}')
-        else:
-            tb = PrettyTable()
-            actor_pcp, avg_pcp, bone_person_pcp, _ = test_dataset.evaluate(preds)
-            tb.field_names = ['Bone Group'] + [f'Actor {i+1}' for i in range(len(actor_pcp))] + ['Average']
-            for k, v in bone_person_pcp.items():
-                tb.add_row([k] + [f'{i*100:.1f}' for i in v] + [f'{np.mean(v)*100:.1f}'])
-            tb.add_row(['Total'] + [f'{i*100:.1f}' for i in actor_pcp] + [f'{avg_pcp*100:.1f}'])
-            print(tb)
+        # if 'panoptic' in config.DATASET.TEST_DATASET:
+        #     mpjpe_threshold = np.arange(25, 155, 25)
+        #     aps_all, recs_all, mpjpe_all, avg_recall_all = test_dataset.evaluate(preds, roots, final_output_dir)
+        #     types_eval = ["pose", "root"]
+        #     for aps, recs, mpjpe, recall, type_eval in zip(aps_all, recs_all, mpjpe_all, avg_recall_all, types_eval):
+        #         tb = PrettyTable()
+        #         print(f'Type: {type_eval}')
+        #         tb.field_names = ['Threshold/mm'] + [f'{i}' for i in mpjpe_threshold]
+        #         tb.add_row(['AP'] + [f'{ap * 100:.2f}' for ap in aps])
+        #         tb.add_row(['Recall'] + [f'{re * 100:.2f}' for re in recs])
+        #         print(tb)
+        #         print(f'MPJPE: {mpjpe:.2f}mm')
+        #         print(f'recall@500: {recall:.4f}, {np.array(recs).mean()}')
+        # else:
+        #     tb = PrettyTable()
+        #     actor_pcp, avg_pcp, bone_person_pcp, _ = test_dataset.evaluate(preds)
+        #     tb.field_names = ['Bone Group'] + [f'Actor {i+1}' for i in range(len(actor_pcp))] + ['Average']
+        #     for k, v in bone_person_pcp.items():
+        #         tb.add_row([k] + [f'{i*100:.1f}' for i in v] + [f'{np.mean(v)*100:.1f}'])
+        #     tb.add_row(['Total'] + [f'{i*100:.1f}' for i in actor_pcp] + [f'{avg_pcp*100:.1f}'])
+        #     print(tb)
 
 
 if __name__ == "__main__":
+    import sys
+    default_argv = [
+        "--cfg", "configs/panoptic_ssl/resnet50/cam5_posenet.yaml",
+        "--test-file", "models/cam5_posenet.pth.tar",
+    ]
+    sys.argv.extend(default_argv)
     main()

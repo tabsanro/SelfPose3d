@@ -135,8 +135,14 @@ class MultiPersonPoseNetSSV(nn.Module):
         pred = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
         pred[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
 
+        result = {
+            'pred': pred,
+            'heatmaps': all_heatmaps,
+            'grid_centers': grid_centers
+        }
+
         if self.eval_rootnet_only:
-            return pred, all_heatmaps, grid_centers
+            return result
 
         if not self.train_only_rootnet:
             if not self.train_only_2d:
@@ -148,9 +154,9 @@ class MultiPersonPoseNetSSV(nn.Module):
                         del single_pose
 
         if visualize_attn:
-            return pred, all_heatmaps, grid_centers, attns
-        else:
-            return pred, all_heatmaps, grid_centers
+            result['attns'] = attns
+        
+        return result
 
     def l1_matching_loss(self, pred, meta):
         # meta[0]['joints'].shape: [batch_size, num_person, num_joint, 2]
@@ -193,6 +199,24 @@ class MultiPersonPoseNetSSV(nn.Module):
 
         return final_losses
 
+    def _process_views(self, views=None, input_heatmaps=None):
+        if views is not None:
+            all_heatmaps = []
+            for view in views:
+                heatmaps = self.backbone(view)
+                all_heatmaps.append(heatmaps)
+        else:
+            all_heatmaps = input_heatmaps
+        return all_heatmaps
+    
+    def _process_attn(self, views=None):
+        if views is not None:
+            attns = []
+            for view in views:
+                attns.append(self.attn(view))
+            attns = torch.stack(attns, 0)
+        return attns
+
 
     def forward(
         self,
@@ -214,65 +238,21 @@ class MultiPersonPoseNetSSV(nn.Module):
         weights_2d3=None,
         targets_3d3=None,
         input_heatmaps3=None,
-        inference=False,
         visualize_attn=False,
         epoch=0,
     ):
-        if inference:
+        if not self.training:
             return self.do_inference(views=views1, meta=meta1, input_heatmaps=input_heatmaps1, visualize_attn=visualize_attn)
         FLIP_LR_JOINTS15 = [0, 1, 2, 9, 10, 11, 12, 13, 14, 3, 4, 5, 6, 7, 8]
 
         # view3 is only for root_net training, it won't go through affine augmentation
-        if views3 is not None:
-            all_heatmaps3 = []
-            for view in views3:
-                heatmaps3 = self.backbone(view)
-                all_heatmaps3.append(heatmaps3)
-        else:
-            all_heatmaps3 = input_heatmaps3
+        all_heatmaps3 = self._process_views(views=views3, input_heatmaps=input_heatmaps3)
 
+        all_heatmaps1 = self._process_views(views=views1, input_heatmaps=input_heatmaps1)
+        all_heatmaps2 = self._process_views(views=views2, input_heatmaps=input_heatmaps2)
         if self.WITH_ATTN:
-            if views1 is not None:
-                attns1 = []
-                for view in views1:
-                    attns1.append(self.attn(view))
-                attns1 = torch.stack(attns1, 0)
-            if views2 is not None:
-                attns2 = []
-                for view in views2:
-                    attns2.append(self.attn(view))
-                attns2 = torch.stack(attns2, 0)
-            if views1 is not None:
-                all_heatmaps1 = []
-                for view in views1:
-                    heatmaps = self.backbone(view)
-                    all_heatmaps1.append(heatmaps)
-            else:
-                all_heatmaps1 = input_heatmaps1
-            
-            if views2 is not None:
-                all_heatmaps2 = []
-                for view in views2:
-                    heatmaps2 = self.backbone(view)
-                    all_heatmaps2.append(heatmaps2)
-            else:
-                all_heatmaps2 = input_heatmaps2
-        else:
-            if views1 is not None:
-                all_heatmaps1 = []
-                for view in views1:
-                    heatmaps = self.backbone(view)
-                    all_heatmaps1.append(heatmaps)
-            else:
-                all_heatmaps1 = input_heatmaps1
-            
-            if views2 is not None:
-                all_heatmaps2 = []
-                for view in views2:
-                    heatmaps2 = self.backbone(view)
-                    all_heatmaps2.append(heatmaps2)
-            else:
-                all_heatmaps2 = input_heatmaps2
+            attns1 = self._process_attn(views=views1)
+            attns2 = self._process_attn(views=views2)
 
         device = all_heatmaps1[0].device
         batch_size = views1[0].shape[0]
@@ -288,11 +268,17 @@ class MultiPersonPoseNetSSV(nn.Module):
             losses["loss_2d"] = (loss_2d1 + loss_2d2 + loss_2d3) / 3.0
         else:
             losses["loss_2d"] = self.backbone(torch.zeros(1, 3, 512, 960, device=device)).mean() * 0.0
-        # return None, all_heatmaps3, None, losses
+        # Initialize result dictionary
+        result = {'heatmaps': all_heatmaps3}
+        result.update(losses)
 
         # fix later
         if self.train_only_2d:
-            return None, all_heatmaps3, None, losses
+            result.update({
+                'pred': None,
+                'grid_centers': None
+            })
+            return result
 
         if self.use_root_gt:
             num_person = meta3[0]["num_person"]
@@ -335,7 +321,11 @@ class MultiPersonPoseNetSSV(nn.Module):
                     losses["loss_root_reg"] = F.mse_loss(root_cubes1, targets_3d1) + F.mse_loss(root_cubes2, targets_3d2)
 
         if self.train_only_rootnet:
-            return None, all_heatmaps3, grid_centers, losses
+            result.update({
+                'pred': None,
+                'grid_centers': grid_centers
+            })
+            return result
 
         if epoch >= self.init_train_epochs_rootnet:
             if self.single_aug_training_posenet:
@@ -497,8 +487,15 @@ class MultiPersonPoseNetSSV(nn.Module):
         else:
             pred2_out = None
             losses["loss_pose3d_ssv"] = self.pose_net.v2v_net(self.zero_tensor_posenet).mean() * 0.0
-
-        return pred2_out, all_heatmaps3, grid_centers, losses
+        
+        # Update result with final outputs
+        result.update(losses)
+        result.update({
+            'pred': pred2_out,
+            'grid_centers': grid_centers
+        })
+        
+        return result
 
 
 def get_multi_person_pose_net(cfg, is_train=True):
