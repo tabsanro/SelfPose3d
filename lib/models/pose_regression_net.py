@@ -34,20 +34,21 @@ class PoseRegressionNet(nn.Module):
         self.grid_size = cfg.PICT_STRUCT.GRID_SIZE
         self.cube_size = cfg.PICT_STRUCT.CUBE_SIZE
 
-        self.project_layer = ProjectLayer(cfg)
+        self.project_layer = ProjectLayer(cfg, mode="posenet")
         self.v2v_net = V2VNet(cfg.NETWORK.NUM_JOINTS, cfg.NETWORK.NUM_JOINTS)
         self.soft_argmax_layer = SoftArgmaxLayer(cfg)
 
-    def forward(self, all_heatmaps, meta, grid_centers, flip_xcoords=None):
+    def forward(self, all_heatmaps, meta, grid_centers, batch_indices, flip_xcoords=None):
         batch_size = all_heatmaps[0].shape[0]
         num_joints = all_heatmaps[0].shape[1]
         device = all_heatmaps[0].device
         pred = torch.zeros(batch_size, num_joints, 3, device=device)
         cubes, grids = self.project_layer(all_heatmaps, meta,
-                                          self.grid_size, grid_centers, self.cube_size, flip_xcoords=flip_xcoords)
+                                          self.grid_size, grid_centers, self.cube_size, batch_indices= batch_indices, flip_xcoords=flip_xcoords)
 
-        index = grid_centers[:, 3] >= 0
-        valid_cubes = self.v2v_net(cubes[index])
-        pred[index] = self.soft_argmax_layer(valid_cubes, grids[index])
+        # index = grid_centers[:, 3] >= 0
+
+        valid_cubes = self.v2v_net(cubes)
+        pred = self.soft_argmax_layer(valid_cubes, grids)
 
         return pred

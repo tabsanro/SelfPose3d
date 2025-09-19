@@ -92,7 +92,7 @@ class CuboidProposalNet(nn.Module):
         self.rootnet_roothm = cfg.NETWORK.ROOTNET_ROOTHM
         self.root_id = cfg.DATASET.ROOTIDX_PSEUDO
 
-        self.project_layer = ProjectLayer(cfg)
+        self.project_layer = ProjectLayer(cfg, mode="rootnet")
         if self.rootnet_roothm:
             self.v2v_net = V2VNet(1, 1)
         else:
@@ -107,7 +107,7 @@ class CuboidProposalNet(nn.Module):
         else:
             all_heatmaps_copy = all_heatmaps
 
-        initial_cubes, grids = self.project_layer(
+        initial_cubes = self.project_layer(
             all_heatmaps_copy,
             meta,
             self.grid_size,

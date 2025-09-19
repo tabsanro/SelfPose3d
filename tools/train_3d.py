@@ -239,7 +239,7 @@ def main():
 if __name__ == "__main__":
     import sys
     default_argv = [
-        "--cfg", "configs/human36m/h36m.yaml"
+        "--cfg", "configs/panoptic_ssl/resnet50/cam5_posenet.yaml"
     ]
     if len(sys.argv) == 1:
         sys.argv.extend(default_argv)

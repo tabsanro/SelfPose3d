@@ -100,64 +100,6 @@ class MultiPersonPoseNetSSV(nn.Module):
         self.register_buffer("hm_yy", yy, persistent=False)
         self.register_buffer("zero_tensor_posenet", zero_tensor_posenet, persistent=False)
 
-
-    # make forward for train and test
-    def do_inference(self, views=None, meta=None, input_heatmaps=None, visualize_attn=False):
-        if views is not None:
-            all_heatmaps = []
-            for view in views:
-                heatmaps = self.backbone(view)
-                all_heatmaps.append(heatmaps)
-        else:
-            all_heatmaps = input_heatmaps
-
-        if visualize_attn:
-            if views is not None:
-                attns = []
-                for view in views:
-                    attns.append(self.attn(view))
-                attns = torch.stack(attns, 0)
-
-        device = all_heatmaps[0].device
-        batch_size = all_heatmaps[0].shape[0]
-
-        if self.use_root_gt:
-            num_person = meta[0]["num_person"]
-            grid_centers = torch.zeros(batch_size, self.num_cand, 5, device=device)
-            grid_centers[:, :, 0:3] = meta[0]["roots_3d"].float()
-            grid_centers[:, :, 3] = -1.0
-            for i in range(batch_size):
-                grid_centers[i, : num_person[i], 3] = torch.tensor(range(num_person[i]), device=device)
-                grid_centers[i, : num_person[i], 4] = 1.0
-        else:
-            _, _, _, grid_centers = self.root_net(all_heatmaps, meta)
-
-        pred = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
-        pred[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
-
-        result = {
-            'pred': pred,
-            'heatmaps': all_heatmaps,
-            'grid_centers': grid_centers
-        }
-
-        if self.eval_rootnet_only:
-            return result
-
-        if not self.train_only_rootnet:
-            if not self.train_only_2d:
-                for n in range(self.num_cand):
-                    index = pred[:, n, 0, 3] >= 0
-                    if torch.sum(index) > 0:
-                        single_pose = self.pose_net(all_heatmaps, meta, grid_centers[:, n])
-                        pred[:, n, :, 0:3] = single_pose.detach()
-                        del single_pose
-
-        if visualize_attn:
-            result['attns'] = attns
-        
-        return result
-
     def l1_matching_loss(self, pred, meta):
         # meta[0]['joints'].shape: [batch_size, num_person, num_joint, 2]
         num_batch = len(pred[0])
@@ -246,10 +188,9 @@ class MultiPersonPoseNetSSV(nn.Module):
         FLIP_LR_JOINTS15 = [0, 1, 2, 9, 10, 11, 12, 13, 14, 3, 4, 5, 6, 7, 8]
 
         # view3 is only for root_net training, it won't go through affine augmentation
-        all_heatmaps3 = self._process_views(views=views3, input_heatmaps=input_heatmaps3)
-
         all_heatmaps1 = self._process_views(views=views1, input_heatmaps=input_heatmaps1)
         all_heatmaps2 = self._process_views(views=views2, input_heatmaps=input_heatmaps2)
+        all_heatmaps3 = self._process_views(views=views3, input_heatmaps=input_heatmaps3)
         if self.WITH_ATTN:
             attns1 = self._process_attn(views=views1)
             attns2 = self._process_attn(views=views2)
@@ -258,19 +199,8 @@ class MultiPersonPoseNetSSV(nn.Module):
         batch_size = views1[0].shape[0]
 
         losses = {}
-        if targets_2d1 is not None and targets_2d2 is not None:
-            targets_2d1 = torch.cat([t[None] for t in targets_2d1])
-            targets_2d2 = torch.cat([t[None] for t in targets_2d2])
-            targets_2d3 = torch.cat([t[None] for t in targets_2d3])
-            loss_2d1 = F.mse_loss(targets_2d1, torch.cat([a[None] for a in all_heatmaps1]))
-            loss_2d2 = F.mse_loss(targets_2d2, torch.cat([a[None] for a in all_heatmaps2]))
-            loss_2d3 = F.mse_loss(targets_2d3, torch.cat([a[None] for a in all_heatmaps3]))
-            losses["loss_2d"] = (loss_2d1 + loss_2d2 + loss_2d3) / 3.0
-        else:
-            losses["loss_2d"] = self.backbone(torch.zeros(1, 3, 512, 960, device=device)).mean() * 0.0
         # Initialize result dictionary
         result = {'heatmaps': all_heatmaps3}
-        result.update(losses)
 
         # fix later
         if self.train_only_2d:
@@ -302,23 +232,11 @@ class MultiPersonPoseNetSSV(nn.Module):
                     root_cubes_main3, root_cubes_syn3, target_cubes3, grid_centers = self.root_net(
                         all_heatmaps3, meta3, flip_xcoords=meta3[0]["hflip"]
                     )
-                    loss_root_syn = (
-                        F.mse_loss(root_cubes_syn1, target_cubes1)
-                        + F.mse_loss(root_cubes_syn2, target_cubes2)
-                        + F.mse_loss(root_cubes_syn3, target_cubes3)
-                    )
                     root_cubes_main3 = root_cubes_main3.detach()
-                    loss_root_reg = F.mse_loss(root_cubes_main1, root_cubes_main3) + F.mse_loss(
-                        root_cubes_main2, root_cubes_main3
-                    )
-                    losses["loss_root_syn"] = self.weight_root_syn * loss_root_syn
-                    if self.root_reg_loss:
-                        losses["loss_root_reg"] = self.weight_root_reg * loss_root_reg
                 else:
                     root_cubes1, _, _, _ = self.root_net(all_heatmaps1, meta1, flip_xcoords=meta1[0]["hflip"])
                     root_cubes2, _, _, _ = self.root_net(all_heatmaps2, meta2, flip_xcoords=meta2[0]["hflip"])
                     _, _, _, grid_centers = self.root_net(all_heatmaps3, meta3, flip_xcoords=meta3[0]["hflip"])
-                    losses["loss_root_reg"] = F.mse_loss(root_cubes1, targets_3d1) + F.mse_loss(root_cubes2, targets_3d2)
 
         if self.train_only_rootnet:
             result.update({
@@ -329,12 +247,9 @@ class MultiPersonPoseNetSSV(nn.Module):
 
         if epoch >= self.init_train_epochs_rootnet:
             if self.single_aug_training_posenet:
-                loss_pose3d_ssv1 = F.mse_loss(torch.zeros(1, device=device), torch.zeros(1, device=device))
                 pred1 = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
                 pred1[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
             else:
-                loss_pose3d_ssv1 = F.mse_loss(torch.zeros(1, device=device), torch.zeros(1, device=device))
-                loss_pose3d_ssv2 = F.mse_loss(torch.zeros(1, device=device), torch.zeros(1, device=device))
                 pred1 = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
                 pred2 = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
                 pred1[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
@@ -378,23 +293,12 @@ class MultiPersonPoseNetSSV(nn.Module):
                 proj_cameras = [deepcopy(c["camera"]) for c in meta1]
                 trans1 = meta1[0]["trans"]
             else:
-                # 1.0 project 3d coords to 2D on all the planes -> 2D coords for each view
-                # pred1 -> project to MV2, pred2 -> project to MV1
-                # compute the mse loss
                 pred2_out = pred2.detach().clone()
                 pred1 = [pred1[pp, 0 : (grid_centers[pp, ..., 3] >= 0).sum().item(), :, :3] for pp in range(pred1.shape[0])]
                 pred2 = [pred2[pp, 0 : (grid_centers[pp, ..., 3] >= 0).sum().item(), :, :3] for pp in range(pred2.shape[0])]
-                # for pp in pred2:
-                #     pp = pp[:, FLIP_LR_JOINTS15, :]
-                #     pp[..., 0] = -pp[..., 0]
-                # 3D to multiview
                 proj_cameras = [deepcopy(c["camera"]) for c in meta1]
                 trans1 = meta1[0]["trans"]
                 trans2 = meta2[0]["trans"]
-                # kps_2d_11 = [cameras.project_pose_batch(pred1, cam, trans1) for cam in cameras1] # not that interesting
-                # kps_2d_22 = [cameras.project_pose_batch(pred2, cam, trans2) for cam in cameras2] # not that interesting
-                # print("pred1", [p.shape for p in pred1])
-                # print("pred2", [p.shape for p in pred2])
             
             if self.single_aug_training_posenet:
                 if pred1[0].shape[0] > 0:

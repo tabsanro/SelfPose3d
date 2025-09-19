@@ -20,6 +20,8 @@ from ..utils.vis import save_debug_images_multi
 from ..utils.vis import save_debug_3d_images
 from ..utils.vis import save_debug_3d_cubes
 from ..utils.vis import save_debug_3d_images_all
+from .loss import PerJointMSELoss
+from .loss import PerJointL1Loss
 
 logger = logging.getLogger(__name__)
 
@@ -243,26 +245,21 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
     ) in enumerate(loader):
         data_time.update(time.time() - end)
 
+        # GPU로 데이터 이동
+        if targets_2d is not None:
+            targets_2d = [t.cuda() if t is not None else None for t in targets_2d]
+        if weights_2d is not None:
+            weights_2d = [w.cuda() if w is not None else None for w in weights_2d]
+        if targets_3d is not None:
+            targets_3d = [t.cuda() if t is not None else None for t in targets_3d]
+        if input_heatmap is not None:
+            input_heatmap = [h.cuda() if h is not None else None for h in input_heatmap]
+
         model_kwargs = {
         'meta': meta,
         'input_heatmaps': input_heatmap,
-        'targets_2d': targets_2d,
-        'weights_2d': weights_2d,
-        'targets_3d': targets_3d[0] if targets_3d is not None else None,
-         }
-    
-        # 데이터셋별 특별 처리
-        dataset_name = config.DATASET.TEST_DATASET.lower()
-        
-        if any(ds in dataset_name for ds in ['panoptic', 'shelf', 'human36m']):
-            model_kwargs['views'] = inputs
-        elif 'campus' in dataset_name:
-            # Campus 데이터셋은 views를 사용하지 않음
-            model_kwargs.pop('targets_2d', None)
-            model_kwargs.pop('weights_2d', None)
-        else:
-            # 기본 처리
-            model_kwargs['views'] = inputs
+        'views': inputs,
+        }
 
         result = model(**model_kwargs)
 
@@ -271,39 +268,47 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
         if not config.NETWORK.TRAIN_ONLY_2D:
             pred = result['pred']
             grid_centers = result['grid_centers']
+            root_cubes = result['root_cubes']
 
         # Calculate losses and update meters
-        total_loss = None
-        
-        if 'loss_2d' in result:
-            loss_2d = result['loss_2d'].mean()
-            losses_2d.update(loss_2d.item())
-            if total_loss is None:
-                total_loss = loss_2d
-            else:
-                total_loss = total_loss + loss_2d
-        
-        if 'loss_3d' in result:
-            loss_3d = result['loss_3d'].mean()
-            losses_3d.update(loss_3d.item())
-            if total_loss is None:
-                total_loss = loss_3d
-            else:
-                total_loss = total_loss + loss_3d
-        
-        if 'loss_cord' in result:
-            loss_cord = result['loss_cord'].mean()
-            losses_cord.update(loss_cord.item())
-            if total_loss is None:
-                total_loss = loss_cord
-            else:
-                total_loss = total_loss + loss_cord
+        device = heatmaps[0].device
+        criterion = PerJointMSELoss().cuda()
+        criterion_cord = PerJointL1Loss().cuda()
+        loss_2d = criterion(torch.zeros(1, device=device), torch.zeros(1, device=device))
+        loss_3d = criterion(torch.zeros(1, device=device), torch.zeros(1, device=device))
+        loss_cord = criterion(torch.zeros(1, device=device), torch.zeros(1, device=device))
 
-        if total_loss is not None:
-            losses.update(total_loss.item())
+        if targets_2d is not None:
+            for t, w, o in zip(targets_2d, weights_2d, heatmaps):
+                loss_2d = loss_2d + criterion(o, t, True, w)
+            loss_2d = loss_2d / len(heatmaps)
+        loss_2d = loss_2d.mean()
+        if not config.NETWORK.TRAIN_ONLY_2D:
+            loss_3d = criterion(root_cubes, targets_3d[0])
+            loss_3d = loss_3d.mean()
+
+            count = 0
+            gt_3d = meta[0]['joints_3d'].float().to(device)
+            weights_3d = meta[0]['joints_3d_vis'].float().to(device)
+            for b in range(pred.shape[0]):
+                for n in range(pred.shape[1]):
+                    if pred[b, n, 0, 3] >= 0:
+                        person_idx = pred[b, n, 0, 3].long()
+                        targets = gt_3d[b:b + 1, person_idx]
+                        weights = weights_3d[b:b + 1, person_idx, :, 0:1]
+                        count += 1
+                        loss_cord = (loss_cord * (count - 1) + criterion_cord(pred[b:b + 1, n, :, :3], targets, True, weights)) / count
+
+        losses_2d.update(loss_2d.item())
+        losses_3d.update(loss_3d.item())
+        losses_cord.update(loss_cord.item())
+
+        loss = loss_2d + loss_3d + loss_cord
+
+        losses.update(loss.item())
 
         optimizer.zero_grad()
-        total_loss.backward()
+        loss.backward()
         optimizer.step()
 
         batch_time.update(time.time() - end)

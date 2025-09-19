@@ -33,7 +33,7 @@ class MultiPersonPoseNet(nn.Module):
         self.root_id = cfg.DATASET.ROOTIDX
         self.dataset_name = cfg.DATASET.TEST_DATASET
 
-    def forward(self, views=None, meta=None, targets_2d=None, weights_2d=None, targets_3d=None, input_heatmaps=None):
+    def forward(self, views=None, meta=None, input_heatmaps=None):
         # 입력 처리
         if views is not None:
             device = views[0].device
@@ -48,26 +48,12 @@ class MultiPersonPoseNet(nn.Module):
             batch_size = all_heatmaps[0].shape[0]
 
         result = {'heatmaps': all_heatmaps}
-
-        # 2D loss 계산 (training 시에만)
-        if self.training:
-            criterion = PerJointMSELoss().cuda()
-            loss_2d = torch.zeros(1, device=device, requires_grad=True)
-            if targets_2d is not None:
-                for t, w, o in zip(targets_2d, weights_2d, all_heatmaps):
-                    loss_2d = loss_2d + criterion(o, t, True, w)
-                loss_2d = loss_2d / len(all_heatmaps)
-            result['loss_2d'] = loss_2d
         
         # 2D only training이면 여기서 반환
         if self.train_only_2d:
             return result
         
-        # 3D pose estimation
-        if self.training:
-            criterion = PerJointMSELoss().cuda()
-            loss_3d = torch.zeros(1, device=device, requires_grad=True)
-        
+        # Root proposal
         if self.USE_GT:
             num_person = meta[0]['num_person']
             grid_centers = torch.zeros(batch_size, self.num_cand, 5, device=device)
@@ -80,45 +66,28 @@ class MultiPersonPoseNet(nn.Module):
             root_cubes, grid_centers = self.root_net(all_heatmaps, meta)
             
             # 3D root loss 계산 (training 시에만)
-            if self.training and targets_3d is not None:
-                loss_3d = criterion(root_cubes, targets_3d)
-                result['loss_3d'] = loss_3d
-
-        # Pose prediction
+            if self.training:
+                result['root_cubes'] = root_cubes
+            else:
+                del root_cubes
+            result['grid_centers'] = grid_centers
+        
         pred = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
         pred[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
 
-        if self.training:
-            criterion_cord = PerJointL1Loss().cuda()
-            loss_cord = torch.zeros(1, device=device, requires_grad=True)
-            count = 0
+        valid_mask = grid_centers[:, :, 3] >= 0  # [batch_size, num_cand]
+        if torch.any(valid_mask):
+        # 유효한 후보자들의 인덱스 추출
+            batch_indices, cand_indices = torch.where(valid_mask)
+            if len(batch_indices) > 0:
+                # 배치 처리를 위한 데이터 준비
+                batch_grid_centers = grid_centers[batch_indices, cand_indices]  # [N, 5]
+                batch_poses = self.pose_net(all_heatmaps, meta, batch_grid_centers, batch_indices)  # [N, num_joints, 3]
 
-        for n in range(self.num_cand):
-            index = (pred[:, n, 0, 3] >= 0)
-            if torch.sum(index) > 0:
-                single_pose = self.pose_net(all_heatmaps, meta, grid_centers[:, n])
-                pred[:, n, :, 0:3] = single_pose
-
-                # 3D pose coordinate loss 계산 (training 시에만)
-                if self.training and 'joints_3d' in meta[0] and 'joints_3d_vis' in meta[0]:
-                    gt_3d = meta[0]['joints_3d'].float()
-                    for i in range(batch_size):
-                        if pred[i, n, 0, 3] >= 0:
-                            person_idx = pred[i, n, 0, 3].long()
-                            targets = gt_3d[i:i + 1, person_idx]
-                            weights_3d = meta[0]['joints_3d_vis'][i:i + 1, person_idx, :, 0:1].float()
-                            count += 1
-                            loss_cord = loss_cord + criterion_cord(single_pose[i:i + 1], targets, True, weights_3d)
-
-        if self.training and count > 0:
-            loss_cord = loss_cord / count
-            result['loss_cord'] = loss_cord
+                pred[batch_indices, cand_indices, :, 0:3] = batch_poses
 
         # 결과 업데이트
-        result.update({
-            'pred': pred,
-            'grid_centers': grid_centers
-        })
+        result['pred'] = pred  # [batch_size, num_cand, num_joints, 5]
 
         return result
 
