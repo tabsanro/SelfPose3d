@@ -103,19 +103,6 @@ def train_3d_ssv(config, model, optimizer, loader, epoch, output_dir=None, write
         loss.backward()
         optimizer.step()
 
-        # if loss_cord > 0:
-        #     optimizer.zero_grad()
-        #     (loss_2d + loss_cord).backward()
-        #     optimizer.step()
-
-        # if accu_loss_3d > 0 and (i + 1) % accumulation_steps == 0:
-        #     optimizer.zero_grad()
-        #     accu_loss_3d.backward()
-        #     optimizer.step()
-        #     accu_loss_3d = 0.0
-        # else:
-        #     accu_loss_3d += loss_3d / accumulation_steps
-
         batch_time.update(time.time() - end)
         end = time.time()
 
@@ -255,13 +242,13 @@ def train_3d(config, model, optimizer, loader, epoch, output_dir=None, writer_di
         if input_heatmap is not None:
             input_heatmap = [h.cuda() if h is not None else None for h in input_heatmap]
 
-        model_kwargs = {
+        batch = {
         'meta': meta,
         'input_heatmaps': input_heatmap,
         'views': inputs,
         }
 
-        result = model(**model_kwargs)
+        result = model(**batch)
 
         # Extract outputs
         heatmaps = result['heatmaps']
@@ -397,17 +384,11 @@ def validate_3d(config, model, loader, epoch, output_dir, with_ssv=False):
                         _, heatmaps = model(
                             views=inputs,
                             meta=meta,
-                            targets_2d=targets_2d,
-                            weights_2d=weights_2d,
-                            targets_3d=None,
                         )
                     else:
                         pred, heatmaps, grid_centers, _, _, _ = model(
                             views=inputs,
                             meta=meta,
-                            targets_2d=targets_2d,
-                            weights_2d=weights_2d,
-                            targets_3d=targets_3d[0],
                         )
             
             if not config.NETWORK.TRAIN_ONLY_2D:

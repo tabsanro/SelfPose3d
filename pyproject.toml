@@ -17,7 +17,7 @@ dependencies = [
     "opencv-python>=4.5.0",
     
     # Scientific computing
-    "numpy>=1.21.0,<1.24.0",
+    "numpy==1.23.5",
     "scipy>=1.7.0",
     "matplotlib>=3.3.0",
     
@@ -29,6 +29,7 @@ dependencies = [
     "PyYAML>=5.4.0",
     "vedo>=2022.0.0,<2023.0.0",
     "tensorboardX",
+    "viser==0.1.0",
 ]
 
 [tool.setuptools]

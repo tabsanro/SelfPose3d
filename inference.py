@@ -11,15 +11,10 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.utils.data
-import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import argparse
 import os
-import time
-from tqdm import tqdm
-from prettytable import PrettyTable
-import copy
-import logging
+import viser
 
 # import _init_paths
 from SelfPose3d.core.config import config
@@ -28,7 +23,6 @@ from SelfPose3d.utils.utils import create_logger, load_backbone_panoptic
 from SelfPose3d import dataset
 from SelfPose3d import models
 from SelfPose3d.utils.vis import save_batch_heatmaps_multi, save_debug_3d_images_all
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train keypoints network')
@@ -45,7 +39,9 @@ def main():
     args = parse_args()
     cfg_name = os.path.basename(args.cfg).split('.')[0]
     final_output_dir = os.path.join("./results_publ/", cfg_name)
-    os.makedirs(final_output_dir, exist_ok=True)                
+    os.makedirs(final_output_dir, exist_ok=True)
+
+    server = viser.ViserServer(host="0.0.0.0", port=5559)                
 
     gpus = [int(i) for i in config.GPUS.split(',')]
     #gpus = [0]

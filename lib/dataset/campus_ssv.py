@@ -18,7 +18,6 @@ from PIL import Image
 from ..utils.transforms import get_affine_transform
 from ..utils.transforms import affine_transform, get_scale
 from .randaugment import RandAugment, Cutout
-from vedo import Volume, show
 
 import json_tricks as json
 import pickle

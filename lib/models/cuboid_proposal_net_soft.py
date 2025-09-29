@@ -11,8 +11,6 @@ from ..core.proposal import nms
 import numpy as np
 from copy import deepcopy
 from ..utils import cameras
-from vedo import Volume, show
-import cv2
 
 
 class ProposalLayerSoft(nn.Module):
