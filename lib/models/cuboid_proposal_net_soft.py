@@ -49,7 +49,7 @@ class ProposalLayerSoft(nn.Module):
         loc = index.float() / (cube_size - 1) * grid_size + grid_center - grid_size / 2.0
         return loc
 
-    def forward(self, root_cubes, meta, grids):
+    def forward(self, root_cubes):
         batch_size = root_cubes.shape[0]
 
         topk_values, topk_unravel_index = nms(root_cubes.detach(), self.num_cand)
@@ -78,7 +78,7 @@ class CuboidProposalNetSoft(nn.Module):
         self.max_num_people = cfg.MULTI_PERSON.MAX_PEOPLE_NUM
         self.rootnet_syn_range = cfg.NETWORK.ROOTNET_SYN_RANGE
 
-        self.project_layer = ProjectLayer(cfg)
+        self.project_layer = ProjectLayer(cfg, mode="rootnet")
         if self.rootnet_roothm:
             self.v2v_net = V2VNet(1, 1)
         else:
@@ -132,7 +132,7 @@ class CuboidProposalNetSoft(nn.Module):
         else:
             all_heatmaps_copy = all_heatmaps
 
-        initial_cubes, grids = self.project_layer(
+        initial_cubes = self.project_layer(
             all_heatmaps_copy,
             meta,
             self.grid_size,
@@ -142,7 +142,7 @@ class CuboidProposalNetSoft(nn.Module):
         )
         root_cubes = self.v2v_net(initial_cubes)
         root_cubes = root_cubes.squeeze(1)
-        grid_centers = self.proposal_layer(root_cubes, meta, grids)
+        grid_centers = self.proposal_layer(root_cubes)
 
         return root_cubes, grid_centers
 
@@ -226,7 +226,7 @@ class CuboidProposalNetSoft(nn.Module):
             # heatmaps_all = torch.cat(heatmaps_all, 0)
 
         # step 4: pass the heatmaps to the self.v2v_net to get the root_cubes
-        initial_cubes, _ = self.project_layer(
+        initial_cubes = self.project_layer(
             heatmaps_all,
             meta,
             self.grid_size,
@@ -269,7 +269,7 @@ class CuboidProposalNetSoft(nn.Module):
 
             root_cubes = self.v2v_net(initial_cubes)
             root_cubes = root_cubes.squeeze(1)
-            grid_centers = self.proposal_layer(root_cubes, meta, grids)
+            grid_centers = self.proposal_layer(root_cubes)
 
             return root_cubes, None, None, grid_centers
 

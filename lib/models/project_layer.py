@@ -115,35 +115,6 @@ class ProjectLayer(nn.Module):
 
         cubes = cubes.view(batch_size, num_joints, self.cube_size[0], self.cube_size[1], self.cube_size[2]) 
         return cubes
-        # for i in range(n):
-        #     heatmap = heatmaps[i]
-        #     sample_grid = sample_grids[i].expand(batch_size, -1, -1, -1)
-            
-        #     # grid_sample 수행
-        #     sampled_cube = F.grid_sample(heatmap, sample_grid, align_corners=True)
-        #     sampled_cube = sampled_cube.squeeze(2)  # (batch_size, num_joints, nbins)
-            
-        #     # 바운딩 마스크 적용
-        #     mask = bounding[0, 0, :, i].unsqueeze(0).unsqueeze(0)  # (1, 1, nbins)
-        #     mask = mask.expand(batch_size, num_joints, -1)
-            
-        #     # 가중 평균을 위한 누적
-        #     final_cubes += sampled_cube * mask
-        #     weight_sum += mask
-            
-        #     # 즉시 메모리 해제
-        #     # del sampled_cube, sample_grid, mask
-        #     # torch.cuda.empty_cache()
-        
-        # # 최종 평균 계산
-        # final_cubes = final_cubes / (weight_sum + 1e-6)
-        # final_cubes = torch.nan_to_num(final_cubes, nan=0.0)
-        # final_cubes = torch.clamp(final_cubes, 0.0, 1.0)
-        
-        # # 큐브 형태로 재구성
-        # final_cubes = final_cubes.view(batch_size, num_joints, self.cube_size[0], self.cube_size[1], self.cube_size[2])
-        
-        # return final_cubes
 
     def clamp_cubes(self, cubes, clamp_grid_centers, batch_indices):
         device = cubes.device

@@ -12,12 +12,13 @@ import torch
 import torch.nn as nn
 from ..utils import cameras
 from copy import deepcopy
-from . import pose_resnet
-from .cuboid_proposal_net_soft import CuboidProposalNetSoft
-from .pose_regression_net import PoseRegressionNet
+from ..models import pose_resnet
+from ..models.cuboid_proposal_net_soft import CuboidProposalNetSoft
+from ..models.pose_regression_net import PoseRegressionNet
 from ..core.loss import PerJointMSELoss
 from ..core.loss import PerJointL1Loss
 from ..core.proposal import max_pool
+from vedo import Volume, show
 import torch.nn.functional as F
 from ..utils.transforms import affine_transform_pts_cuda as do_transform
 
@@ -30,19 +31,8 @@ class MultiPersonPoseNetSSV(nn.Module):
         super(MultiPersonPoseNetSSV, self).__init__()
         self.num_cand = cfg.MULTI_PERSON.MAX_PEOPLE_NUM
         self.num_joints = cfg.NETWORK.NUM_JOINTS
-        self.root_id = cfg.DATASET.ROOTIDX
+
         self.backbone = backbone
-        
-        if self.training:
-            if cfg.WITH_SSV:
-                self.init_train_ssv(cfg, attn)
-            else:
-                self.init_train(cfg)
-        else:
-            self.root_net = CuboidProposalNetSoft(cfg)
-            self.pose_net = PoseRegressionNet(cfg)
-            
-    def init_train_ssv(self, cfg, attn):
         self.WITH_ATTN = cfg.WITH_ATTN
         if self.WITH_ATTN:
             self.attn = attn
@@ -58,6 +48,7 @@ class MultiPersonPoseNetSSV(nn.Module):
 
         self.use_root_gt = cfg.NETWORK.USE_GT
         self.train_only_2d = cfg.NETWORK.TRAIN_ONLY_2D
+        self.root_id = cfg.DATASET.ROOTIDX
         self.dataset_name = cfg.DATASET.TEST_DATASET
         self.train_only_rootnet = cfg.NETWORK.TRAIN_ONLY_ROOTNET
         self.rootnet_train_synth = cfg.NETWORK.ROOTNET_TRAIN_SYNTH
@@ -109,13 +100,57 @@ class MultiPersonPoseNetSSV(nn.Module):
         self.register_buffer("hm_yy", yy, persistent=False)
         self.register_buffer("zero_tensor_posenet", zero_tensor_posenet, persistent=False)
 
-    def init_train(self, cfg):
-        self.train_only_2d = cfg.NETWORK.TRAIN_ONLY_2D
-        self.use_root_gt = cfg.NETWORK.USE_GT
-        self.dataset_name = cfg.DATASET.TEST_DATASET
-        if not self.train_only_2d:
-            self.root_net = CuboidProposalNetSoft(cfg)
-            self.pose_net = PoseRegressionNet(cfg)
+
+    # make forward for train and test
+    def do_inference(self, views=None, meta=None, input_heatmaps=None, visualize_attn=False):
+        if views is not None:
+            all_heatmaps = []
+            for view in views:
+                heatmaps = self.backbone(view)
+                all_heatmaps.append(heatmaps)
+        else:
+            all_heatmaps = input_heatmaps
+
+        if visualize_attn:
+            if views is not None:
+                attns = []
+                for view in views:
+                    attns.append(self.attn(view))
+                attns = torch.stack(attns, 0)
+
+        device = all_heatmaps[0].device
+        batch_size = all_heatmaps[0].shape[0]
+
+        if self.use_root_gt:
+            num_person = meta[0]["num_person"]
+            grid_centers = torch.zeros(batch_size, self.num_cand, 5, device=device)
+            grid_centers[:, :, 0:3] = meta[0]["roots_3d"].float()
+            grid_centers[:, :, 3] = -1.0
+            for i in range(batch_size):
+                grid_centers[i, : num_person[i], 3] = torch.tensor(range(num_person[i]), device=device)
+                grid_centers[i, : num_person[i], 4] = 1.0
+        else:
+            _, _, _, grid_centers = self.root_net(all_heatmaps, meta)
+
+        pred = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
+        pred[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
+
+        if self.eval_rootnet_only:
+            return pred, all_heatmaps, grid_centers
+
+        if not self.train_only_rootnet:
+            if not self.train_only_2d:
+                for n in range(self.num_cand):
+                    index = pred[:, n, 0, 3] >= 0
+                    if torch.sum(index) > 0:
+                        single_pose = self.pose_net(all_heatmaps, meta, grid_centers[:, n])
+                        pred[:, n, :, 0:3] = single_pose.detach()
+                        del single_pose
+
+        if visualize_attn:
+            return pred, all_heatmaps, grid_centers, attns
+        else:
+            return pred, all_heatmaps, grid_centers
 
     def l1_matching_loss(self, pred, meta):
         # meta[0]['joints'].shape: [batch_size, num_person, num_joint, 2]
@@ -157,8 +192,8 @@ class MultiPersonPoseNetSSV(nn.Module):
             final_losses = losses.mean()
 
         return final_losses
-
-    def _process_views(self, views=None, input_heatmaps=None):
+    
+    def process_heatmaps(self, views=None, input_heatmaps=None):
         if views is not None:
             all_heatmaps = []
             for view in views:
@@ -168,86 +203,54 @@ class MultiPersonPoseNetSSV(nn.Module):
             all_heatmaps = input_heatmaps
         return all_heatmaps
     
-    def _process_attn(self, views=None):
+    def process_attn(self, views=None):
         if views is not None:
             attns = []
             for view in views:
                 attns.append(self.attn(view))
             attns = torch.stack(attns, 0)
         return attns
-    
-    def forward(self, batch, epoch=0, visualize_attn=False):
-        if self.training:
-            if self.WITH_SSV:
-                return self._forward_train_ssv(batch, epoch, visualize_attn)
-            else:
-                return self._forward_train(batch)
-        else:
-            return self._forward_inference(batch)
-        
-    def _forward_inference(self, batch):
-        # 입력 처리
-        views = batch['views']
-        meta = batch['meta']
-        input_heatmaps = batch.get('input_heatmaps', None)
-        device = views[0].device
-        batch_size = views[0].shape[0]
-        all_heatmaps = self._process_views(views, input_heatmaps)
-        result = {'heatmaps': all_heatmaps}
-        grid_centers = self.root_net(all_heatmaps, meta)
-        del root_cubes
-        result['grid_centers'] = grid_centers
-        
-        pred = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
-        pred[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
 
-        valid_mask = grid_centers[:, :, 3] >= 0  # [batch_size, num_cand]
-        if torch.any(valid_mask):
-        # 유효한 후보자들의 인덱스 추출
-            batch_indices, cand_indices = torch.where(valid_mask)
-            if len(batch_indices) > 0:
-                # 배치 처리를 위한 데이터 준비
-                batch_grid_centers = grid_centers[batch_indices, cand_indices]  # [N, 5]
-                batch_poses = self.pose_net(all_heatmaps, meta, batch_grid_centers, batch_indices)  # [N, num_joints, 3]
 
-                pred[batch_indices, cand_indices, :, 0:3] = batch_poses
-
-        # 결과 업데이트
-        result['pred'] = pred  # [batch_size, num_cand, num_joints, 5]
-
-        return result
-
-    def _forward_train_ssv(self, batch, epoch=0, visualize_attn=False):
-        '''
-        views1, meta1, targets_2d1, weights_2d1, targets_3d1, input_heatmaps1:
-            main real data (with augmentations)
-        views2, meta2, targets_2d2, weights_2d2, targets_3d2, input_heatmaps2:
-            synthetic data (with augmentations)
-        views3, meta3, targets_2d3, weights_2d3, targets_3d3, input_heatmaps3:
-            main real data (without augmentations, only for root_net training or GT root input)
-        '''
-        views1 = batch.get("views1", None)
-        views2 = batch.get("views2", None)
-        views3 = batch.get("views3", None)
-        meta1 = batch.get("meta1", None)
-        meta2 = batch.get("meta2", None)
-        meta3 = batch.get("meta3", None)
-        input_heatmaps1 = batch.get("input_heatmaps1", None)
-        input_heatmaps2 = batch.get("input_heatmaps2", None)
-        input_heatmaps3 = batch.get("input_heatmaps3", None)
+    def forward(
+        self,
+        views1=None,
+        meta1=None,
+        targets_2d1=None,
+        weights_2d1=None,
+        targets_3d1=None,
+        input_heatmaps1=None,
+        views2=None,
+        meta2=None,
+        targets_2d2=None,
+        weights_2d2=None,
+        targets_3d2=None,
+        input_heatmaps2=None,
+        views3=None,
+        meta3=None,
+        targets_2d3=None,
+        weights_2d3=None,
+        targets_3d3=None,
+        input_heatmaps3=None,
+        inference=False,
+        visualize_attn=False,
+        epoch=0,
+    ):
+        if not self.training:
+            return self.do_inference(views=views1, meta=meta1, input_heatmaps=input_heatmaps1, visualize_attn=visualize_attn)
         FLIP_LR_JOINTS15 = [0, 1, 2, 9, 10, 11, 12, 13, 14, 3, 4, 5, 6, 7, 8]
 
-        result = {}
         # view3 is only for root_net training, it won't go through affine augmentation
-        device = views1[0].device
-        batch_size = views1[0].shape[0]
-        all_heatmaps1 = self._process_views(views1, input_heatmaps1)
-        all_heatmaps2 = self._process_views(views2, input_heatmaps2)
-        all_heatmaps3 = self._process_views(views3, input_heatmaps3)
+        all_heatmaps1 = self.process_heatmaps(views=views1, input_heatmaps=input_heatmaps1)
+        all_heatmaps2 = self.process_heatmaps(views=views2, input_heatmaps=input_heatmaps2)
+        all_heatmaps3 = self.process_heatmaps(views=views3, input_heatmaps=input_heatmaps3)
         if self.WITH_ATTN:
-            attns1 = self._process_attn(views1)
-            attns2 = self._process_attn(views2)
-        
+            attns1 = self.process_attn(views=views1)
+            attns2 = self.process_attn(views=views2)
+
+        device = all_heatmaps1[0].device
+        batch_size = views1[0].shape[0]
+
         losses = {}
         if targets_2d1 is not None and targets_2d2 is not None:
             targets_2d1 = torch.cat([t[None] for t in targets_2d1])
@@ -333,6 +336,16 @@ class MultiPersonPoseNetSSV(nn.Module):
                         )
                         pred1[:, n, :, 0:3] = single_pose1               
             else:
+                valid_mask = grid_centers[:, :, 3] >= 0 # [batch_size, num_cand]
+                if torch.any(valid_mask):
+                    batch_indices, cand_indices = torch.where(valid_mask)
+                    if len(batch_indices) > 0:
+                        batch_grid_centers = grid_centers[batch_indices, cand_indices]  # [N, 5]
+                        batch_poses1 = self.pose_net(all_heatmaps1, meta1, batch_grid_centers, batch_indices)
+                        batch_poses2 = self.pose_net(all_heatmaps2, meta2, batch_grid_centers, batch_indices)
+                        pred1[batch_indices, cand_indices, :, 0:3] = batch_poses1
+                        pred2[batch_indices, cand_indices, :, 0:3] = batch_poses2
+                '''
                 for n in range(self.num_cand):
                     index1 = pred1[:, n, 0, 3] >= 0
                     index2 = pred2[:, n, 0, 3] >= 0
@@ -352,6 +365,7 @@ class MultiPersonPoseNetSSV(nn.Module):
                             flip_xcoords=meta2[0]["hflip"],
                         )
                         pred2[:, n, :, 0:3] = single_pose2
+                '''
 
             if self.single_aug_training_posenet:
                 pred2_out = pred1.detach().clone()
@@ -471,64 +485,6 @@ class MultiPersonPoseNetSSV(nn.Module):
 
         return pred2_out, all_heatmaps3, grid_centers, losses
 
-    def _forward_train(self, batch):
-        # 입력 처리
-        views = batch.get("views", None)
-        meta = batch.get("meta", None)
-        input_heatmaps = batch.get("input_heatmaps", None)
-        
-        if views is not None:
-            device = views[0].device
-            batch_size = views[0].shape[0]
-            all_heatmaps = []
-            for view in views:
-                heatmaps = self.backbone(view)
-                all_heatmaps.append(heatmaps)
-        else:
-            all_heatmaps = input_heatmaps
-            device = all_heatmaps[0].device
-            batch_size = all_heatmaps[0].shape[0]
-
-        result = {'heatmaps': all_heatmaps}
-        
-        # 2D only training이면 여기서 반환
-        if self.train_only_2d:
-            return result
-        
-        # Root proposal
-        if self.USE_GT:
-            num_person = meta[0]['num_person']
-            grid_centers = torch.zeros(batch_size, self.num_cand, 5, device=device)
-            grid_centers[:, :, 0:3] = meta[0]['roots_3d'].float()
-            grid_centers[:, :, 3] = -1.0
-            for i in range(batch_size):
-                grid_centers[i, :num_person[i], 3] = torch.tensor(range(num_person[i]), device=device)
-                grid_centers[i, :num_person[i], 4] = 1.0
-        else:
-            root_cubes, grid_centers = self.root_net(all_heatmaps, meta)
-            
-            # 3D root loss 계산 (training 시에만)
-            result['root_cubes'] = root_cubes
-            result['grid_centers'] = grid_centers
-        
-        pred = torch.zeros(batch_size, self.num_cand, self.num_joints, 5, device=device)
-        pred[:, :, :, 3:] = grid_centers[:, :, 3:].reshape(batch_size, -1, 1, 2)
-
-        valid_mask = grid_centers[:, :, 3] >= 0  # [batch_size, num_cand]
-        if torch.any(valid_mask):
-        # 유효한 후보자들의 인덱스 추출
-            batch_indices, cand_indices = torch.where(valid_mask)
-            if len(batch_indices) > 0:
-                # 배치 처리를 위한 데이터 준비
-                batch_grid_centers = grid_centers[batch_indices, cand_indices]  # [N, 5]
-                batch_poses = self.pose_net(all_heatmaps, meta, batch_grid_centers, batch_indices)  # [N, num_joints, 3]
-
-                pred[batch_indices, cand_indices, :, 0:3] = batch_poses
-
-        # 결과 업데이트
-        result['pred'] = pred  # [batch_size, num_cand, num_joints, 5]
-
-        return result
 
 def get_multi_person_pose_net(cfg, is_train=True):
     if cfg.BACKBONE_MODEL:
