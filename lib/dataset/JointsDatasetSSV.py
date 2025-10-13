@@ -164,205 +164,73 @@ class JointsDatasetSSV(Dataset):
             [],
             [],
         )
-        while True:
-            # just compute the joints
-            db_rec_list, trans1_list, trans2_list, trans3_list = [], [], [], []
-            (
-                joints1_list,
-                joints2_list,
-                joints3_list,
-                joints_vis1_list,
-                joints_vis2_list,
-                joints_vis3_list,
-            ) = (
-                [],
-                [],
-                [],
-                [],
-                [],
-                [],
+        # just compute the joints
+        db_rec_list, trans1_list, trans2_list, trans3_list = [], [], [], []
+        r1 = (
+            np.clip(
+                np.random.uniform(-1,1) * self.rotation_factor1,
+                -self.rotation_factor1,
+                self.rotation_factor1,
             )
-            r1 = (
-                np.clip(
-                    np.random.uniform(-1,1) * self.rotation_factor1,
-                    -self.rotation_factor1,
-                    self.rotation_factor1,
-                )
+            if random.random() <= 0.5
+            else 0
+        )
+        r2 = (
+            np.clip(
+                np.random.uniform(-1,1) * self.rotation_factor2,
+                -self.rotation_factor2,
+                self.rotation_factor2,
+            )
+            if random.random() <= 0.5
+            else 0
+        )
+        if self.flip:
+            do_hflip1 = random.random() <= 0.5
+            do_hflip2 = random.random() <= 0.5
+        else:
+            do_hflip1, do_hflip2 = False, False
+
+        if self.scale_factor1 == 0:
+            s1 = 0.0
+        else:
+            s1 = (
+                np.random.uniform(0.1, self.scale_factor1)
                 if random.random() <= 0.5
-                else 0
+                else -np.random.uniform(0.1, self.scale_factor1) / 2.0
             )
-            r2 = (
-                np.clip(
-                    np.random.uniform(-1,1) * self.rotation_factor2,
-                    -self.rotation_factor2,
-                    self.rotation_factor2,
-                )
+        if self.scale_factor2 == 0:
+            s2 = 0.0
+        else:
+            s2 = (
+                np.random.uniform(0.1, self.scale_factor2)
                 if random.random() <= 0.5
-                else 0
+                else -np.random.uniform(0.1, self.scale_factor2) / 2.0
             )
-            if self.flip:
-                do_hflip1 = random.random() <= 0.5
-                do_hflip2 = random.random() <= 0.5
-            else:
-                do_hflip1, do_hflip2 = False, False
-
-            if self.scale_factor1 == 0:
-                s1 = 0.0
-            else:
-                s1 = (
-                    np.random.uniform(0.1, self.scale_factor1)
-                    if random.random() <= 0.5
-                    else -np.random.uniform(0.1, self.scale_factor1) / 2.0
-                )
-            if self.scale_factor2 == 0:
-                s2 = 0.0
-            else:
-                s2 = (
-                    np.random.uniform(0.1, self.scale_factor2)
-                    if random.random() <= 0.5
-                    else -np.random.uniform(0.1, self.scale_factor2) / 2.0
-                )
-            npersons_list = []
-            for k in range(self.num_views):
-                index = self.camera_num_total * idx + self.cameras[k]
-                db_rec = deepcopy(self.db[index])
-                db_rec["camera"]["f"] = np.array([db_rec["camera"]["fx"], db_rec["camera"]["fy"]])[
-                    ..., None
-                ]
-                db_rec["camera"]["c"] = np.array([db_rec["camera"]["cx"], db_rec["camera"]["cy"]])[
-                    ..., None
-                ]
-                for cam_key, cam_value in db_rec["camera"].items():
-                    db_rec["camera"][cam_key] = torch.from_numpy(cam_value.astype(np.float32))
-                db_rec_list.append(db_rec)
-
-                joints1, joints2, joints3 = (
-                    deepcopy(db_rec["joints_2d"]),
-                    deepcopy(db_rec["joints_2d"]),
-                    deepcopy(db_rec["joints_2d"]),
-                )
-                joints_vis1, joints_vis2, joints_vis3 = (
-                    deepcopy(db_rec["joints_2d_vis"]),
-                    deepcopy(db_rec["joints_2d_vis"]),
-                    deepcopy(db_rec["joints_2d_vis"]),
-                )
-
-                nposes = len(joints1)
-                npersons_list.append(nposes)
-
-                height, width = self.height_orig, self.width_orig
-                c = np.array([width / 2.0, height / 2.0])
-                s = get_scale((width, height), self.image_size)
-                sc1 = np.array([_s + (_s * s1) for _s in s])
-                sc2 = np.array([_s + (_s * s2) for _s in s])
-                trans1 = get_affine_transform(c, sc1, r1, self.image_size)
-                trans2 = get_affine_transform(c, sc2, r2, self.image_size)
-                trans3 = get_affine_transform(c, s, 0, self.image_size)
-                trans1_list.append(trans1)
-                trans2_list.append(trans2)
-                trans3_list.append(trans3)
-
-                # optmize this loop
-                for n in range(nposes):
-                    for i in range(len(joints1[0])):
-                        if joints_vis1[n][i, 0] > 0.0:
-                            joints1[n][i, 0:2] = affine_transform(joints1[n][i, 0:2], trans1)
-                            joints2[n][i, 0:2] = affine_transform(joints2[n][i, 0:2], trans2)
-                            joints3[n][i, 0:2] = affine_transform(joints3[n][i, 0:2], trans3)
-                            if (
-                                np.min(joints1[n][i, :2]) < 0
-                                or joints1[n][i, 0] >= self.image_size[0]
-                                or joints1[n][i, 1] >= self.image_size[1]
-                            ):
-                                joints_vis1[n][i, :] = 0
-                            if (
-                                np.min(joints2[n][i, :2]) < 0
-                                or joints2[n][i, 0] >= self.image_size[0]
-                                or joints2[n][i, 1] >= self.image_size[1]
-                            ):
-                                joints_vis2[n][i, :] = 0
-                            if (
-                                np.min(joints3[n][i, :2]) < 0
-                                or joints3[n][i, 0] >= self.image_size[0]
-                                or joints3[n][i, 1] >= self.image_size[1]
-                            ):
-                                joints_vis3[n][i, :] = 0
-
-                    if do_hflip1:
-                        joints1[n][..., 0:2] = joints1[n][..., 0:2][self.flip_indices]
-                        joints1[n][..., 0] = self.image_size[0] - joints1[n][..., 0]
-
-                    if do_hflip2:
-                        joints2[n][..., 0:2] = joints2[n][..., 0:2][self.flip_indices]
-                        joints2[n][..., 0] = self.image_size[0] - joints2[n][..., 0]
-
-                joints1_list.append(joints1)
-                joints2_list.append(joints2)
-                joints3_list.append(joints3)
-                joints_vis1_list.append(joints_vis1)
-                joints_vis2_list.append(joints_vis2)
-                joints_vis3_list.append(joints_vis3)
-            # c1 c2 c3 ensure that all the views should have atleast one person
-            c1 = np.all(np.array([len(p) for p in joints_vis1_list]) > 0)
-            c2 = np.all(np.array([len(p) for p in joints_vis2_list]) > 0)
-            c3 = np.all(np.array([len(p) for p in joints_vis3_list]) > 0)
-            if c1 and c2 and c3: 
-                roots1 = np.sort(
-                    np.array(
-                        [
-                            np.any(np.array(p)[:, self.root_id], 1).astype(np.int32).sum()
-                            for p in joints_vis1_list
-                        ]
-                    )
-                )[-self.min_views_check :]
-                roots2 = np.sort(
-                    np.array(
-                        [
-                            np.any(np.array(p)[:, self.root_id], 1).astype(np.int32).sum()
-                            for p in joints_vis2_list
-                        ]
-                    )
-                )[-self.min_views_check :]
-                min_vis_roots1 = roots1.sum() / self.min_views_check
-                min_vis_roots2 = roots2.sum() / self.min_views_check
-                npers_allviews = np.max(npersons_list)
-
-                if int(npers_allviews) == int(min_vis_roots1) and int(npers_allviews) == int(
-                    min_vis_roots2
-                ):
-                    break
-                else:
-                    idx = np.random.randint(0, (len(self) / self.num_views) - 10)
-                    self.mis_count += 1
-            else:
-                idx = np.random.randint(0, (len(self) / self.num_views) - 10)
-                self.mis_count += 1                
-
-
+        npersons_list = []
         for k in range(self.num_views):
-            db_rec = db_rec_list[k]
-            joints1, joints_vis1 = joints1_list[k], joints_vis1_list[k]
-            joints2, joints_vis2 = joints2_list[k], joints_vis2_list[k]
-            joints3, joints_vis3 = joints3_list[k], joints_vis3_list[k]
-            trans1, trans2, trans3 = trans1_list[k], trans2_list[k], trans3_list[k]
-            nposes = npersons_list[k]
+            index = self.camera_num_total * idx + self.cameras[k]
+            db_rec = deepcopy(self.db[index])
+            db_rec["camera"]["f"] = np.array([db_rec["camera"]["fx"], db_rec["camera"]["fy"]])[
+                ..., None
+            ]
+            db_rec["camera"]["c"] = np.array([db_rec["camera"]["cx"], db_rec["camera"]["cy"]])[
+                ..., None
+            ]
+            for cam_key, cam_value in db_rec["camera"].items():
+                db_rec["camera"][cam_key] = torch.from_numpy(cam_value.astype(np.float32))
+            db_rec_list.append(db_rec)
 
-            if "joints_3d" in db_rec:
-                joints_3d = db_rec["joints_3d"]
-                joints_3d_vis = db_rec["joints_3d_vis"]
-                with_3d = True
-                # assert nposes <= self.maximum_person, "too many persons"
-            else:
-                with_3d = False
-
-            if nposes > self.maximum_person:
-                joints1 = [joints1[j] for j in range(self.maximum_person)]
-                joints_vis1 = [joints_vis1[j] for j in range(self.maximum_person)]
-                joints2 = [joints2[j] for j in range(self.maximum_person)]
-                joints_vis2 = [joints_vis2[j] for j in range(self.maximum_person)]
-                joints3 = [joints3[j] for j in range(self.maximum_person)]
-                joints_vis3 = [joints_vis3[j] for j in range(self.maximum_person)]
-                nposes = self.maximum_person
+            height, width = self.height_orig, self.width_orig
+            c = np.array([width / 2.0, height / 2.0])
+            s = get_scale((width, height), self.image_size)
+            sc1 = np.array([_s + (_s * s1) for _s in s])
+            sc2 = np.array([_s + (_s * s2) for _s in s])
+            trans1 = get_affine_transform(c, sc1, r1, self.image_size)
+            trans2 = get_affine_transform(c, sc2, r2, self.image_size)
+            trans3 = get_affine_transform(c, s, 0, self.image_size)
+            trans1_list.append(trans1)
+            trans2_list.append(trans2)
+            trans3_list.append(trans3)
 
             image_file = db_rec["image"]
             data_numpy = cv2.imread(image_file, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
@@ -400,142 +268,240 @@ class JointsDatasetSSV(Dataset):
                 input1 = deepcopy(np.asarray(self.rand_augment(Image.fromarray(input1))))
                 input2 = deepcopy(np.asarray(self.rand_augment(Image.fromarray(input2))))
 
-            if "pred_pose2d" in db_rec and db_rec["pred_pose2d"] != None:
-                # For convenience, we use predicted poses and corresponding values at the original heatmaps
-                # to generate 2d heatmaps for Campus and Shelf dataset.
-                # You can also use other 2d backbone trained on COCO to generate 2d heatmaps directly.
-                pred_pose2d1, pred_pose2d2, pred_pose2d3 = (
-                    deepcopy(db_rec["pred_pose2d"]),
-                    deepcopy(db_rec["pred_pose2d"]),
-                    deepcopy(db_rec["pred_pose2d"]),
-                )
-                for n in range(len(pred_pose2d1)):
-                    for i in range(len(pred_pose2d1[n])):
-                        pred_pose2d1[n][i, 0:2] = affine_transform(pred_pose2d1[n][i, 0:2], trans1)
-                        pred_pose2d2[n][i, 0:2] = affine_transform(pred_pose2d2[n][i, 0:2], trans2)
-                        pred_pose2d3[n][i, 0:2] = affine_transform(pred_pose2d3[n][i, 0:2], trans2)
-                input_heatmap1 = self.generate_input_heatmap(pred_pose2d1)
-                input_heatmap1 = torch.from_numpy(input_heatmap1)
-                input_heatmap2 = self.generate_input_heatmap(pred_pose2d2)
-                input_heatmap2 = torch.from_numpy(input_heatmap2)
-                input_heatmap3 = self.generate_input_heatmap(pred_pose2d3)
-                input_heatmap3 = torch.from_numpy(input_heatmap3)
-            else:
-                input_heatmap1 = torch.zeros(
-                    self.cfg.NETWORK.NUM_JOINTS,
-                    self.heatmap_size[1],
-                    self.heatmap_size[0],
-                )
-                input_heatmap2 = torch.zeros(
-                    self.cfg.NETWORK.NUM_JOINTS,
-                    self.heatmap_size[1],
-                    self.heatmap_size[0],
-                )
-                input_heatmap3 = torch.zeros(
-                    self.cfg.NETWORK.NUM_JOINTS,
-                    self.heatmap_size[1],
-                    self.heatmap_size[0],
-                )
-
-            target_heatmap1, target_weight1 = self.generate_target_heatmap(joints1, joints_vis1)
-            target_heatmap2, target_weight2 = self.generate_target_heatmap(joints2, joints_vis2)
-            target_heatmap3, target_weight3 = self.generate_target_heatmap(joints3, joints_vis3)
-            # target_heatmap1_root, target_weight1_root = self.generate_target_heatmap_roots(
-            #     joints1, joints_vis1
-            # )
-            # target_heatmap2_root, target_weight2_root = self.generate_target_heatmap_roots(
-            #     joints2, joints_vis2
-            # )
-            # target_heatmap3_root, target_weight3_root = self.generate_target_heatmap_roots(
-            #     joints3, joints_vis3
-            # )
-
-            # visualize the 2D joints and heatmaps
-            # if self.debug:
-            # input1_vis = cv2.cvtColor(deepcopy(input1), cv2.COLOR_RGB2BGR)
-            # input2_vis = cv2.cvtColor(deepcopy(input2), cv2.COLOR_RGB2BGR)
-            # input3_vis = cv2.cvtColor(deepcopy(input3), cv2.COLOR_RGB2BGR)
-            # heatmaps1_1 = [cv2.resize(cv2.applyColorMap((m*255).astype(np.uint8), cv2.COLORMAP_JET), (960, 512)) for m in target_heatmap1]
-            # heatmaps2_1 = [cv2.resize(cv2.applyColorMap((m*255).astype(np.uint8), cv2.COLORMAP_JET), (960, 512)) for m in target_heatmap2]
-            # heatmaps3_1 = [cv2.resize(cv2.applyColorMap((m*255).astype(np.uint8), cv2.COLORMAP_JET), (960, 512)) for m in target_heatmap3]
-            # heatmaps1 = [((input1_vis*0.3) + (m*0.7)).astype(np.uint8) for m in heatmaps1_1]
-            # heatmaps2 = [((input2_vis*0.3) + (m*0.7)).astype(np.uint8) for m in heatmaps2_1]
-            # heatmaps3 = [((input3_vis*0.3) + (m*0.7)).astype(np.uint8) for m in heatmaps3_1]
-            # for n in range(nposes):
-            #     for i in range(len(joints1[0])):
-            #         cv2.circle(input1_vis, (int(joints1[n][i][0]), int(joints1[n][i][1])), 2, [255, 0, 0], 2)
-            #         cv2.circle(input2_vis, (int(joints2[n][i][0]), int(joints2[n][i][1])), 2, [255, 0, 0], 2)
-            #         cv2.circle(input3_vis, (int(joints3[n][i][0]), int(joints3[n][i][1])), 2, [255, 0, 0], 2)
-            # img = cv2.hconcat((input1_vis, input2_vis, input3_vis))
-            # hm1 = cv2.resize(cv2.hconcat(heatmaps1),(1800, 64))
-            # hm2 = cv2.resize(cv2.hconcat(heatmaps2),(1800, 64))
-            # hm3 = cv2.resize(cv2.hconcat(heatmaps3),(1800, 64))
-            # cv2.imshow("hi", img)
-            # cv2.imshow("hm1", hm1)
-            # cv2.imshow("hm2", hm2)
-            # cv2.imshow("hm3", hm3)
-            # cv2.imwrite("/home/srivasta/{}_img.png".format(k), img)
-            # cv2.imwrite("/home/srivasta/{}_hm1.png".format(k), hm1)
-            # cv2.imwrite("/home/srivasta/{}_hm2.png".format(k), hm2)
-            # cv2.imwrite("/home/srivasta/{}_hm3.png".format(k), hm3)
-            # cv2.waitKey(0)
-
-            target_heatmap1 = torch.from_numpy(target_heatmap1)
-            target_weight1 = torch.from_numpy(target_weight1)
-            target_heatmap2 = torch.from_numpy(target_heatmap2)
-            target_weight2 = torch.from_numpy(target_weight2)
-            target_heatmap3 = torch.from_numpy(target_heatmap3)
-            target_weight3 = torch.from_numpy(target_weight3)
-
-            # target_heatmap1_root = torch.from_numpy(target_heatmap1_root)
-            # target_weight1_root = torch.from_numpy(target_weight1_root)
-            # target_heatmap2_root = torch.from_numpy(target_heatmap2_root)
-            # target_weight2_root = torch.from_numpy(target_weight2_root)
-            # target_heatmap3_root = torch.from_numpy(target_heatmap3_root)
-            # target_weight3_root = torch.from_numpy(target_weight3_root)
-
-            # make joints and joints_vis having same shape
-            joints_u1 = np.zeros((self.maximum_person, self.num_joints, 2))
-            joints_vis_u1 = np.zeros((self.maximum_person, self.num_joints, 2))
-            joints_u2 = np.zeros((self.maximum_person, self.num_joints, 2))
-            joints_vis_u2 = np.zeros((self.maximum_person, self.num_joints, 2))
-            joints_u3 = np.zeros((self.maximum_person, self.num_joints, 2))
-            joints_vis_u3 = np.zeros((self.maximum_person, self.num_joints, 2))
-
-            for i in range(nposes):
-                joints_u1[i] = joints1[i]
-                joints_vis_u1[i] = joints_vis1[i]
-                joints_u2[i] = joints2[i]
-                joints_vis_u2[i] = joints_vis2[i]
-                joints_u3[i] = joints3[i]
-                joints_vis_u3[i] = joints_vis3[i]
-
-            joints_3d_u = np.zeros((self.maximum_person, self.num_joints, 3))
-            joints_3d_vis_u = np.zeros((self.maximum_person, self.num_joints, 3))
-            if with_3d:
-                num_person_3d = min(len(joints_3d_u), len(joints_3d))
-                for i in range(num_person_3d):
-                    joints_3d_u[i] = joints_3d[i][:, 0:3]
-                    joints_3d_vis_u[i] = joints_3d_vis[i][:, 0:3]
-                target_3d = self.generate_3d_target(joints_3d)
-            else:
-                cube_size = self.initial_cube_size
-                target_3d = np.zeros((cube_size[0], cube_size[1], cube_size[2]), dtype=np.float32)
-            target_3d = torch.from_numpy(target_3d)
-
-            # if self.debug:
-            #     vol = Volume(target_3d)
-            #     show(vol, azimuth=10, axes=True).close()
-
             if self.transform:
                 input1 = self.transform(input1)
                 input2 = self.transform(input2)
                 input3 = self.transform(input3)
 
-            if isinstance(self.root_id, int):
-                roots_3d = joints_3d_u[:, self.root_id]
-            elif isinstance(self.root_id, list):
-                roots_3d = np.mean([joints_3d_u[:, j] for j in self.root_id], axis=0)
+        if "joints_2d" in db_rec:
+            while True:
+                (
+                    joints1_list,
+                    joints2_list,
+                    joints3_list,
+                    joints_vis1_list,
+                    joints_vis2_list,
+                    joints_vis3_list,
+                ) = (
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                )
+                for k in range(self.num_views):
+                    joints1, joints2, joints3 = (
+                        deepcopy(db_rec["joints_2d"]),
+                        deepcopy(db_rec["joints_2d"]),
+                        deepcopy(db_rec["joints_2d"]),
+                    )
+                    joints_vis1, joints_vis2, joints_vis3 = (
+                        deepcopy(db_rec["joints_2d_vis"]),
+                        deepcopy(db_rec["joints_2d_vis"]),
+                        deepcopy(db_rec["joints_2d_vis"]),
+                    )
+
+                    nposes = len(joints1)
+                    npersons_list.append(nposes)
+
+                    # optimize this loop
+                    for n in range(nposes):
+                        for i in range(len(joints1[0])):
+                            if joints_vis1[n][i, 0] > 0.0:
+                                joints1[n][i, 0:2] = affine_transform(joints1[n][i, 0:2], trans1)
+                                joints2[n][i, 0:2] = affine_transform(joints2[n][i, 0:2], trans2)
+                                joints3[n][i, 0:2] = affine_transform(joints3[n][i, 0:2], trans3)
+                                if (
+                                    np.min(joints1[n][i, :2]) < 0
+                                    or joints1[n][i, 0] >= self.image_size[0]
+                                    or joints1[n][i, 1] >= self.image_size[1]
+                                ):
+                                    joints_vis1[n][i, :] = 0
+                                if (
+                                    np.min(joints2[n][i, :2]) < 0
+                                    or joints2[n][i, 0] >= self.image_size[0]
+                                    or joints2[n][i, 1] >= self.image_size[1]
+                                ):
+                                    joints_vis2[n][i, :] = 0
+                                if (
+                                    np.min(joints3[n][i, :2]) < 0
+                                    or joints3[n][i, 0] >= self.image_size[0]
+                                    or joints3[n][i, 1] >= self.image_size[1]
+                                ):
+                                    joints_vis3[n][i, :] = 0
+
+                        if do_hflip1:
+                            joints1[n][..., 0:2] = joints1[n][..., 0:2][self.flip_indices]
+                            joints1[n][..., 0] = self.image_size[0] - joints1[n][..., 0]
+
+                        if do_hflip2:
+                            joints2[n][..., 0:2] = joints2[n][..., 0:2][self.flip_indices]
+                            joints2[n][..., 0] = self.image_size[0] - joints2[n][..., 0]
+
+                    joints1_list.append(joints1)
+                    joints2_list.append(joints2)
+                    joints3_list.append(joints3)
+                    joints_vis1_list.append(joints_vis1)
+                    joints_vis2_list.append(joints_vis2)
+                    joints_vis3_list.append(joints_vis3)
+                # c1 c2 c3 ensure that all the views should have atleast one person
+                c1 = np.all(np.array([len(p) for p in joints_vis1_list]) > 0)
+                c2 = np.all(np.array([len(p) for p in joints_vis2_list]) > 0)
+                c3 = np.all(np.array([len(p) for p in joints_vis3_list]) > 0)
+                if c1 and c2 and c3: 
+                    roots1 = np.sort(
+                        np.array(
+                            [
+                                np.any(np.array(p)[:, self.root_id], 1).astype(np.int32).sum()
+                                for p in joints_vis1_list
+                            ]
+                        )
+                    )[-self.min_views_check :]
+                    roots2 = np.sort(
+                        np.array(
+                            [
+                                np.any(np.array(p)[:, self.root_id], 1).astype(np.int32).sum()
+                                for p in joints_vis2_list
+                            ]
+                        )
+                    )[-self.min_views_check :]
+                    min_vis_roots1 = roots1.sum() / self.min_views_check
+                    min_vis_roots2 = roots2.sum() / self.min_views_check
+                    npers_allviews = np.max(npersons_list)
+
+                    if int(npers_allviews) == int(min_vis_roots1) and int(npers_allviews) == int(
+                        min_vis_roots2
+                    ):
+                        break
+                    else:
+                        idx = np.random.randint(0, (len(self) / self.num_views) - 10)
+                        self.mis_count += 1
+                else:
+                    idx = np.random.randint(0, (len(self) / self.num_views) - 10)
+                    self.mis_count += 1                
+
+            for k in range(self.num_views):
+
+                db_rec = db_rec_list[k]
+                joints1, joints_vis1 = joints1_list[k], joints_vis1_list[k]
+                joints2, joints_vis2 = joints2_list[k], joints_vis2_list[k]
+                joints3, joints_vis3 = joints3_list[k], joints_vis3_list[k]
+                trans1, trans2, trans3 = trans1_list[k], trans2_list[k], trans3_list[k]
+                nposes = npersons_list[k]
+
+                if "joints_3d" in db_rec:
+                    joints_3d = db_rec["joints_3d"]
+                    joints_3d_vis = db_rec["joints_3d_vis"]
+                    with_3d = True
+                    # assert nposes <= self.maximum_person, "too many persons"
+                else:
+                    with_3d = False
+
+                if nposes > self.maximum_person:
+                    joints1 = [joints1[j] for j in range(self.maximum_person)]
+                    joints_vis1 = [joints_vis1[j] for j in range(self.maximum_person)]
+                    joints2 = [joints2[j] for j in range(self.maximum_person)]
+                    joints_vis2 = [joints_vis2[j] for j in range(self.maximum_person)]
+                    joints3 = [joints3[j] for j in range(self.maximum_person)]
+                    joints_vis3 = [joints_vis3[j] for j in range(self.maximum_person)]
+                    nposes = self.maximum_person
+
+                target_heatmap1, target_weight1 = self.generate_target_heatmap(joints1, joints_vis1)
+                target_heatmap2, target_weight2 = self.generate_target_heatmap(joints2, joints_vis2)
+                target_heatmap3, target_weight3 = self.generate_target_heatmap(joints3, joints_vis3)
+                
+                target_heatmap1 = torch.from_numpy(target_heatmap1)
+                target_weight1 = torch.from_numpy(target_weight1)
+                target_heatmap2 = torch.from_numpy(target_heatmap2)
+                target_weight2 = torch.from_numpy(target_weight2)
+                target_heatmap3 = torch.from_numpy(target_heatmap3)
+                target_weight3 = torch.from_numpy(target_weight3)
+
+                # make joints and joints_vis having same shape
+                joints_u1 = np.zeros((self.maximum_person, self.num_joints, 2))
+                joints_vis_u1 = np.zeros((self.maximum_person, self.num_joints, 2))
+                joints_u2 = np.zeros((self.maximum_person, self.num_joints, 2))
+                joints_vis_u2 = np.zeros((self.maximum_person, self.num_joints, 2))
+                joints_u3 = np.zeros((self.maximum_person, self.num_joints, 2))
+                joints_vis_u3 = np.zeros((self.maximum_person, self.num_joints, 2))
+
+                for i in range(nposes):
+                    joints_u1[i] = joints1[i]
+                    joints_vis_u1[i] = joints_vis1[i]
+                    joints_u2[i] = joints2[i]
+                    joints_vis_u2[i] = joints_vis2[i]
+                    joints_u3[i] = joints3[i]
+                    joints_vis_u3[i] = joints_vis3[i]
+
+                joints_3d_u = np.zeros((self.maximum_person, self.num_joints, 3))
+                joints_3d_vis_u = np.zeros((self.maximum_person, self.num_joints, 3))
+                if with_3d:
+                    num_person_3d = min(len(joints_3d_u), len(joints_3d))
+                    for i in range(num_person_3d):
+                        joints_3d_u[i] = joints_3d[i][:, 0:3]
+                        joints_3d_vis_u[i] = joints_3d_vis[i][:, 0:3]
+                    target_3d = self.generate_3d_target(joints_3d)
+                else:
+                    cube_size = self.initial_cube_size
+                    target_3d = np.zeros((cube_size[0], cube_size[1], cube_size[2]), dtype=np.float32)
+                target_3d = torch.from_numpy(target_3d)
+
+                # if self.debug:
+                #     vol = Volume(target_3d)
+                #     show(vol, azimuth=10, axes=True).close()
+                if "pred_pose2d" in db_rec and db_rec["pred_pose2d"] != None:
+                    # For convenience, we use predicted poses and corresponding values at the original heatmaps
+                    # to generate 2d heatmaps for Campus and Shelf dataset.
+                    # You can also use other 2d backbone trained on COCO to generate 2d heatmaps directly.
+                    pred_pose2d1, pred_pose2d2, pred_pose2d3 = (
+                        deepcopy(db_rec["pred_pose2d"]),
+                        deepcopy(db_rec["pred_pose2d"]),
+                        deepcopy(db_rec["pred_pose2d"]),
+                    )
+                    for n in range(len(pred_pose2d1)):
+                        for i in range(len(pred_pose2d1[n])):
+                            pred_pose2d1[n][i, 0:2] = affine_transform(pred_pose2d1[n][i, 0:2], trans1)
+                            pred_pose2d2[n][i, 0:2] = affine_transform(pred_pose2d2[n][i, 0:2], trans2)
+                            pred_pose2d3[n][i, 0:2] = affine_transform(pred_pose2d3[n][i, 0:2], trans2)
+                    input_heatmap1 = self.generate_input_heatmap(pred_pose2d1)
+                    input_heatmap1 = torch.from_numpy(input_heatmap1)
+                    input_heatmap2 = self.generate_input_heatmap(pred_pose2d2)
+                    input_heatmap2 = torch.from_numpy(input_heatmap2)
+                    input_heatmap3 = self.generate_input_heatmap(pred_pose2d3)
+                    input_heatmap3 = torch.from_numpy(input_heatmap3)
+                else:
+                    input_heatmap1 = torch.zeros(
+                        self.cfg.NETWORK.NUM_JOINTS,
+                        self.heatmap_size[1],
+                        self.heatmap_size[0],
+                    )
+                    input_heatmap2 = torch.zeros(
+                        self.cfg.NETWORK.NUM_JOINTS,
+                        self.heatmap_size[1],
+                        self.heatmap_size[0],
+                    )
+                    input_heatmap3 = torch.zeros(
+                        self.cfg.NETWORK.NUM_JOINTS,
+                        self.heatmap_size[1],
+                        self.heatmap_size[0],
+                    )
+                if isinstance(self.root_id, int):
+                    roots_3d = joints_3d_u[:, self.root_id]
+                elif isinstance(self.root_id, list):
+                    roots_3d = np.mean([joints_3d_u[:, j] for j in self.root_id], axis=0)
+            else:
+                nposes = None
+                joints_3d_u, joints_3d_vis_u = None, None
+                roots_3d = None
+                joints_u1, joints_vis_u1 = None, None
+                joints_u2, joints_vis_u2 = None, None
+                joints_u3, joints_vis_u3 = None, None
+                input_heatmaps1, input_heatmaps2, input_heatmaps3 = None, None, None
+                target_weight1, target_weight2, target_weight3 = None, None, None
+                target_heatmap1, target_heatmap2, target_heatmap3 = None, None, None
+                target_3ds1, target_3ds2, target_3ds3 = None, None, None
+
             meta1 = {
                 "image": image_file,
                 "num_person": nposes,
